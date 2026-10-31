@@ -1,0 +1,216 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hyderabad Property Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;color:#222}
+#map{position:absolute;inset:0}
+.panel{position:absolute;top:12px;right:12px;z-index:1000;background:#fff;border-radius:12px;
+ box-shadow:0 4px 18px rgba(0,0,0,.18);padding:14px 16px;width:290px;font-size:13px;max-height:calc(100vh - 24px);overflow:auto}
+.panel h1{font-size:16px;margin:0 0 8px;display:flex;justify-content:space-between;align-items:center}
+.panel h1 a{font-size:12px;font-weight:500;color:#3949ab;text-decoration:none}
+.panel h2{font-size:12px;text-transform:uppercase;color:#777;margin:12px 0 4px;letter-spacing:.04em}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.kpi{background:#f4f6fb;border-radius:8px;padding:6px 8px}.kpi b{display:block;font-size:15px}
+label{display:block;margin:6px 0 2px;color:#555}select,input[type=range]{width:100%}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row label{margin:4px 0}
+.legend{height:10px;border-radius:5px;margin-top:8px;background:linear-gradient(90deg,#00c853,#ffeb3b,#ff9800,#d50000)}
+.lg{display:flex;justify-content:space-between;font-size:11px;color:#666}
+.cat{display:flex;align-items:center;gap:6px;margin:3px 0;cursor:pointer}
+.cnt{display:flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:700;
+ font-size:11px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.poi{font-size:15px;line-height:22px;text-align:center;width:26px;height:26px;border-radius:50%;background:#fff;border:2px solid;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.leaflet-popup-content{margin:10px;width:auto!important}
+.tip{font-size:12px;width:520px;max-width:80vw}.tip h3{margin:0 0 2px;font-size:15px}
+.badge{display:inline-block;padding:2px 7px;border-radius:10px;background:#eef2ff;color:#3949ab;font-size:11px;margin:2px 3px 2px 0}
+.badge.t{background:#e8f5e9;color:#2e7d32}
+.tabs{display:flex;gap:4px;margin:8px 0 6px;border-bottom:1px solid #eee}
+.tabs button{border:0;background:none;padding:6px 10px;cursor:pointer;font-size:12px;color:#666;border-bottom:2px solid transparent}
+.tabs button.on{color:#111;border-color:#3949ab;font-weight:600}
+.pane{display:none;max-height:260px;overflow:auto}.pane.on{display:block}
+table{border-collapse:collapse;width:100%}th,td{padding:3px 4px;border-bottom:1px solid #f0f0f0;text-align:left;white-space:nowrap}
+th{position:sticky;top:0;background:#fff}
+.bar{height:6px;border-radius:3px;background:#eee;min-width:60px}.bar>span{display:block;height:100%;border-radius:3px}
+.score{font-size:28px;font-weight:700}.grid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px}.muted{color:#777}
+#overlay{position:absolute;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.85);font-size:15px;text-align:center}
+#overlay a{color:#3949ab}
+@media (max-width:640px){.panel{top:auto;bottom:0;right:0;left:0;width:auto;max-height:45vh;border-radius:12px 12px 0 0}}
+</style></head><body><div id="map"></div>
+<div id="overlay">Loading properties from the database…</div>
+<div class="panel"><h1>🏙️ Property Map <a href="admin.html">Upload data</a></h1>
+<div class="kpis"><div class="kpi">Listings<b id="kTotal">–</b></div><div class="kpi">Projects<b id="kProj">–</b></div>
+<div class="kpi">Median price<b id="kMed">–</b></div><div class="kpi">Avg ₹/sqft<b id="kPsf">–</b></div></div>
+<h2>Filter properties</h2>
+<label>Area</label><select id="fArea"><option value="">All areas</option></select>
+<label>Type</label><select id="fType"><option value="">All</option></select>
+<label>BHK</label><select id="fBhk"><option value="">All</option></select>
+<label>Status</label><select id="fStatus"><option value="">All</option></select>
+<label>Locality type</label><select id="fLoc"><option value="">All</option></select>
+<label>Max price: <span id="pLbl"></span></label><input type="range" id="fPrice">
+<label>Min livability score: <span id="lLbl"></span></label><input type="range" id="fLiv" min="0" max="100" value="0">
+<h2>Layers</h2>
+<div class="row"><label><input type="checkbox" id="tHeat" checked> Density heatmap</label>
+<label><input type="checkbox" id="tMark" checked> Projects</label></div>
+<div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div>
+<h2>Infrastructure</h2><div id="catList"></div>
+<label>Base map</label><select id="fBase"><option value="osm">Street</option><option value="sat">Satellite</option><option value="light">Light</option></select>
+</div>
+<script type="module">
+import { fetchAll } from "./js/db.js";
+import { CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
+const $ = (id) => document.getElementById(id);
+let D, map, heat, projLayer, linkLayer, poiLayers = {}, bases, placesById = {}, pinned = [];
+
+const fill = (sel, vals) => [...new Set(vals)].filter((v) => v != null && v !== "").sort((a, b) => (a > b ? 1 : -1))
+  .forEach((v) => sel.add(new Option(v, v)));
+const heatColor = (t) => (t < 0.33 ? "#00c853" : t < 0.66 ? "#ff9800" : "#d50000");
+const scoreColor = (s) => (s >= 70 ? "#2e7d32" : s >= 50 ? "#f9a825" : "#e53935");
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+
+async function start() {
+  map = L.map("map").setView([17.40, 78.40], 12);
+  bases = {
+    osm: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© OpenStreetMap" }),
+    sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 19, attribution: "© Esri" }),
+    light: L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { maxZoom: 19, attribution: "© OSM © CARTO" }),
+  };
+  bases.osm.addTo(map);
+  $("fBase").oninput = (e) => { Object.values(bases).forEach((b) => map.removeLayer(b)); bases[e.target.value].addTo(map); };
+  try { D = await fetchAll(); }
+  catch (e) { $("overlay").innerHTML = `Couldn't load data: ${e.message}<br><span class="muted">Check js/supabase-config.js and that you ran setup.sql</span>`; return; }
+  if (!D.properties.length) { $("overlay").innerHTML = `No properties in the database yet.<br><a href="admin.html">Upload a spreadsheet →</a>`; return; }
+  $("overlay").remove();
+
+  placesById = Object.fromEntries(D.places.map((p) => [p.id, p]));
+  pinned = D.places.filter((p) => p.lat != null && p.lng != null && CATS[p.category]);
+  D.projects = buildProjects(D.properties, placesById);
+
+  const units = D.properties;
+  fill($("fArea"), units.map((u) => u.area)); fill($("fType"), units.map((u) => u.type));
+  fill($("fBhk"), units.map((u) => u.bhk)); fill($("fStatus"), units.map((u) => u.status));
+  fill($("fLoc"), D.projects.map((p) => p.profile.type));
+  const maxP = Math.max(...units.map((u) => u.price || 0));
+  const pr = $("fPrice"); pr.min = 0; pr.max = Math.ceil(maxP); pr.step = 500000; pr.value = pr.max;
+
+  heat = L.heatLayer([], { radius: 35, blur: 25, maxZoom: 16, minOpacity: 0.35,
+    gradient: { 0.2: "#00c853", 0.45: "#c6ff00", 0.6: "#ffeb3b", 0.75: "#ff9800", 0.9: "#ff5722", 1: "#d50000" } });
+  linkLayer = L.layerGroup().addTo(map);
+  projLayer = L.layerGroup().addTo(map);
+  buildPois();
+  ["fArea", "fType", "fBhk", "fStatus", "fLoc", "fPrice", "fLiv", "tHeat", "tMark"].forEach((id) => $(id).addEventListener("input", render));
+  $("fArea").addEventListener("input", fit);
+  render(); fit();
+}
+
+function fit() {
+  const a = $("fArea").value;
+  const pts = D.projects.filter((p) => !a || p.area === a).map((p) => [p.lat, p.lng]);
+  if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+}
+
+function buildPois() {
+  Object.entries(CATS).forEach(([k, c]) => {
+    const list = pinned.filter((p) => p.category === k);
+    poiLayers[k] = L.layerGroup();
+    list.forEach((p) => {
+      const icon = L.divIcon({ className: "", iconSize: [26, 26], html: `<div class="poi" style="border-color:${c.color}">${c.icon}</div>` });
+      const near = D.projects.map((pj) => ({ n: pj.name, d: pj.dist[p.id] })).filter((x) => x.d != null).sort((a, b) => a.d - b.d).slice(0, 6);
+      const m = L.marker([p.lat, p.lng], { icon, zIndexOffset: -100 }).bindPopup(`<div style="font-size:12px"><b>${c.icon} ${p.name}</b><br>
+        <span class="muted">${c.label}</span>${near.length ? `<table style="margin-top:6px"><tr><th>Closest projects</th><th>km</th></tr>
+        ${near.map((x) => `<tr><td>${x.n}</td><td>${x.d}</td></tr>`).join("")}</table>` : ""}</div>`, { autoPan: false });
+      m.on("mouseover", () => m.openPopup());
+      poiLayers[k].addLayer(m);
+    });
+    const on = ["hospital", "school", "it"].includes(k);
+    if (on) poiLayers[k].addTo(map);
+    const el = document.createElement("label"); el.className = "cat";
+    el.innerHTML = `<input type="checkbox" ${on ? "checked" : ""}>${c.icon} ${c.label} <span class="muted">(${list.length})</span>`;
+    el.querySelector("input").onchange = (e) => (e.target.checked ? poiLayers[k].addTo(map) : map.removeLayer(poiLayers[k]));
+    $("catList").appendChild(el);
+  });
+}
+
+function render() {
+  const fa = $("fArea").value, ft = $("fType").value, fb = $("fBhk").value, fs = $("fStatus").value,
+    fl = $("fLoc").value, fp = +$("fPrice").value, fv = +$("fLiv").value;
+  $("pLbl").textContent = inr(fp); $("lLbl").textContent = fv;
+  projLayer.clearLayers(); linkLayer.clearLayers();
+  const pts = [], shown = [];
+  D.projects.forEach((p) => {
+    if ((fa && p.area !== fa) || (fl && p.profile.type !== fl) || (p.profile.livability ?? 0) < fv) return;
+    const u = p.units.filter((x) => (!ft || x.type == ft) && (!fb || x.bhk == fb) && (!fs || x.status == fs) && (!x.price || x.price <= fp));
+    if (u.length) { shown.push({ ...p, units: u }); u.forEach(() => pts.push([p.lat, p.lng, 1])); }
+  });
+  const su = shown.flatMap((p) => p.units);
+  $("kTotal").textContent = su.length; $("kProj").textContent = shown.length;
+  $("kMed").textContent = inr(median(su.map((u) => u.price).filter(Boolean)));
+  const ps = su.map((u) => u.psf).filter(Boolean);
+  $("kPsf").textContent = ps.length ? "₹" + fmt(Math.round(ps.reduce((a, b) => a + b, 0) / ps.length)) : "–";
+  heat.setLatLngs(pts); $("tHeat").checked ? heat.addTo(map) : map.removeLayer(heat);
+  if (!$("tMark").checked) return;
+  const maxN = Math.max(...shown.map((p) => p.units.length), 1);
+  shown.forEach((p) => {
+    const n = p.units.length, d = Math.round(20 + Math.sqrt(n) * 6);
+    const icon = L.divIcon({ className: "", iconSize: [d, d],
+      html: `<div class="cnt" style="width:${d}px;height:${d}px;background:${heatColor(n / maxN)}">${n}</div>` });
+    const m = L.marker([p.lat, p.lng], { icon }).bindPopup(() => tip(p), { maxWidth: 600, autoPanPaddingTopLeft: [20, 20], autoPanPaddingBottomRight: [330, 20] });
+    m.on("mouseover", () => m.openPopup());
+    m.on("popupopen", () => drawLinks(p)); m.on("popupclose", () => linkLayer.clearLayers());
+    projLayer.addLayer(m);
+  });
+}
+
+function drawLinks(p) {
+  linkLayer.clearLayers();
+  Object.entries(CATS).forEach(([k, c]) => {
+    const best = pinned.filter((x) => x.category === k && p.dist[x.id] != null).sort((a, b) => p.dist[a.id] - p.dist[b.id])[0];
+    if (!best) return;
+    L.polyline([[p.lat, p.lng], [best.lat, best.lng]], { color: c.color, weight: 2, dashArray: "5 5", opacity: 0.8 })
+      .bindTooltip(`${c.icon} ${best.name}: ${p.dist[best.id]} km`).addTo(linkLayer);
+  });
+}
+
+window.tab = (btn, id) => {
+  const t = btn.closest(".tip");
+  t.querySelectorAll(".tabs button").forEach((b) => b.classList.remove("on"));
+  t.querySelectorAll(".pane").forEach((x) => x.classList.remove("on"));
+  btn.classList.add("on"); t.querySelector("." + id).classList.add("on");
+};
+
+function tip(p) {
+  const pr = p.profile, uid = "u" + Math.random().toString(36).slice(2);
+  const units = p.units.map((u) => `<tr><td>${u.type || ""}</td><td>${u.bhk ?? ""} BHK</td><td>${fmt(u.areaSqft)} sqft</td>
+    <td><b>${u.askingPrice || inr(u.price)}</b></td><td>₹${fmt(u.psf)}</td><td>${u.floorNo ?? "-"}/${u.floors ?? "-"}</td>
+    <td>${u.facing || ""}</td><td>${u.status || ""}</td><td>${u.furnishing || ""}</td></tr>`).join("");
+  const groups = {}, other = [];
+  Object.entries(p.dist).forEach(([k, d]) => {
+    const m = placeMeta(k, placesById);
+    (m.cat && CATS[m.cat] ? (groups[m.cat] ||= []) : other).push({ n: m.name, d });
+  });
+  const section = (c, items, color) => `<tr><th colspan="3" style="padding-top:8px;color:${color}">${c}
+      <span class="muted" style="font-weight:400">· nearest ${items[0].d} km</span></th></tr>` +
+    items.map((x) => `<tr><td>${x.n}</td><td>${x.d} km</td><td><div class="bar"><span style="width:${Math.max(4, 100 - x.d * 12)}%;background:${color}"></span></div></td></tr>`).join("");
+  let nearby = Object.entries(CATS).filter(([k]) => groups[k])
+    .map(([k, c]) => section(`${c.icon} ${c.label}`, groups[k].sort((a, b) => a.d - b.d), c.color)).join("");
+  if (other.length) nearby += section("📍 Other", other.sort((a, b) => a.d - b.d), "#888");
+  const cs = Object.entries(pr.catScores).map(([k, v]) => `<div>${CATS[k].icon} ${CATS[k].label}
+     <div class="bar"><span style="width:${v}%;background:${scoreColor(v)}"></span></div></div>`).join("");
+  return `<div class="tip"><h3>${p.name}</h3>
+   <div><span class="badge">📍 ${p.area}</span><span class="badge">${pr.type}</span><span class="badge">${pr.zone}</span></div>
+   <div class="muted" style="margin-top:4px">${p.units.length} listing(s) · ${p.range} · Avg ₹${fmt(p.avgPsf)}/sqft · Livability
+     <b style="color:${scoreColor(pr.livability)}">${pr.livability ?? "-"}/100</b></div>
+   <div class="tabs"><button class="on" onclick="tab(this,'a${uid}')">🏠 Units</button>
+     <button onclick="tab(this,'b${uid}')">📍 Nearby</button><button onclick="tab(this,'c${uid}')">🧭 Locality</button></div>
+   <div class="pane on a${uid}"><table><tr><th>Type</th><th>BHK</th><th>Area</th><th>Price</th><th>₹/sqft</th>
+     <th>Floor</th><th>Facing</th><th>Status</th><th>Furnishing</th></tr>${units}</table></div>
+   <div class="pane b${uid}"><table>${nearby || '<tr><td class="muted">No distance data</td></tr>'}</table></div>
+   <div class="pane c${uid}">
+     <div style="display:flex;gap:16px;align-items:center"><div class="score" style="color:${scoreColor(pr.livability)}">${pr.livability ?? "-"}</div>
+     <div><b>${pr.type}</b><br>${pr.zone}<br><span class="muted">${pr.neighbours} other projects within 1 km · amenities ${p.amen ?? "-"}</span></div></div>
+     <div style="margin:8px 0">${pr.tags.map((t) => `<span class="badge t">${t}</span>`).join("")}</div>
+     <div class="grid2">${cs}</div></div></div>`;
+}
+start();
+</script></body></html>

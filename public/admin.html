@@ -1,0 +1,169 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Upload Data · Property Map</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f5f6fa;--card:#fff;--ink:#1d2433;--muted:#6b7280;--line:#e5e7eb;--accent:#3949ab;--ok:#2e7d32;--bad:#c62828}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;justify-content:space-between;padding:14px 24px;background:var(--card);border-bottom:1px solid var(--line)}
+header a{color:var(--accent);text-decoration:none;font-weight:600}
+main{max-width:980px;margin:24px auto;padding:0 16px;display:grid;gap:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+h1{font-size:18px;margin:0}h2{font-size:16px;margin:0 0 4px}.muted{color:var(--muted);font-size:13px}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
+button.ghost{background:#eef0fb;color:var(--accent)}button.danger{background:#fdecea;color:var(--bad)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.drop{display:block;border:2px dashed #c5cae9;border-radius:12px;padding:26px;text-align:center;margin:12px 0;cursor:pointer;background:#fafbff}
+.drop.over{background:#e8eaf6}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+input[type=text]{padding:7px 9px;border:1px solid var(--line);border-radius:7px;width:220px;font:inherit}
+.pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;background:#eef0fb;color:var(--accent)}
+.pill.ok{background:#e8f5e9;color:var(--ok)}.pill.bad{background:#fdecea;color:var(--bad)}
+progress{width:100%;height:10px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+#log{font-size:13px;white-space:pre-wrap}
+</style></head><body>
+<header><h1>📤 Upload property data</h1>
+<div class="row"><span id="who" class="muted"></span><button id="btnAuth" class="ghost">Sign in</button><a href="./">Open map →</a></div></header>
+<main>
+<section class="card" id="locked"><h2>Sign in required</h2>
+<p class="muted">Only the site owner can upload or delete data. Anyone can view the map.</p></section>
+
+<section class="card" id="uploadCard" hidden>
+<h2>1 · Property spreadsheets</h2>
+<p class="muted">CSV or Excel (.xlsx), same columns as the Kokapet sheet. One file = one area; the area name comes from the file name and you can edit it.
+Rows already in the database are <b>updated</b>, new rows are <b>added</b>, duplicates are <b>skipped</b>.</p>
+<label class="drop" id="drop"><input type="file" id="files" accept=".csv,.xlsx,.xls" multiple hidden>
+Drop files here or <b>click to choose</b></label>
+<table id="preview" hidden><thead><tr><th>File</th><th>Area name</th><th>Rows</th><th>New</th><th>Update</th><th>Duplicates skipped</th><th>Errors</th></tr></thead><tbody></tbody></table>
+<div class="row" style="margin-top:12px"><button id="btnUpload" disabled>Upload to Supabase</button><progress id="prog" value="0" max="1" hidden></progress></div>
+<div id="log" class="muted" style="margin-top:8px"></div>
+</section>
+
+<section class="card" id="placesCard" hidden>
+<h2>2 · Place locations <span class="muted">(optional)</span></h2>
+<p class="muted">CSV with columns <code>column, name, category, lat, lng</code>. Gives each distance column a proper name, category and map pin.
+Categories: hospital, school, college, it, shopping, park, gym, worship, transport. Rows without lat/lng still set the name &amp; category.</p>
+<div class="row"><input type="file" id="placesFile" accept=".csv,.xlsx"><button id="btnPlaces" disabled>Upload places</button></div>
+<div id="placesLog" class="muted" style="margin-top:8px"></div>
+</section>
+
+<section class="card" id="areasCard" hidden>
+<h2>Areas in the database</h2>
+<table id="areas"><thead><tr><th>Area</th><th>Listings</th><th>Projects</th><th>Last upload</th><th></th></tr></thead><tbody></tbody></table>
+</section>
+</main>
+
+<script type="module">
+import { onUser, login, logout, fetchAll, upsertMany, saveArea, deleteArea, ADMIN_EMAIL } from "./js/db.js";
+import { rowToProperty, slug, keyOf } from "./js/common.js";
+const $ = (id) => document.getElementById(id);
+let existing = new Set(), staged = [];
+
+onUser(async (u) => {
+  const ok = u && u.email === ADMIN_EMAIL;
+  $("who").textContent = u ? u.email : "";
+  $("btnAuth").textContent = u ? "Sign out" : "Sign in";
+  $("btnAuth").onclick = () => (u ? logout() : login().then((m) => m && alert(m)).catch((e) => alert(e.message)));
+  $("locked").hidden = ok;
+  ["uploadCard", "placesCard", "areasCard"].forEach((id) => ($(id).hidden = !ok));
+  if (u && !ok) $("locked").innerHTML = `<h2>Not allowed</h2><p class="muted">${u.email} is not the admin account (${ADMIN_EMAIL}).</p>`;
+  if (ok) refresh();
+});
+
+async function refresh() {
+  const data = await fetchAll();
+  existing = new Set(data.properties.map((p) => p.id));
+  const by = {};
+  data.properties.forEach((p) => { (by[p.areaId] ||= { area: p.area, n: 0, proj: new Set() }); by[p.areaId].n++; by[p.areaId].proj.add(p.project); });
+  const meta = Object.fromEntries(data.areas.map((a) => [a.id, a]));
+  $("areas").querySelector("tbody").innerHTML = Object.entries(by).sort().map(([id, a]) => `<tr><td><b>${a.area}</b></td><td>${a.n}</td><td>${a.proj.size}</td>
+    <td class="muted">${meta[id]?.updatedAt ? new Date(meta[id].updatedAt).toLocaleString() : "-"}</td>
+    <td><button class="danger" data-del="${id}" data-name="${a.area}">Delete area</button></td></tr>`).join("")
+    || `<tr><td colspan="5" class="muted">No data yet. Upload your first spreadsheet above.</td></tr>`;
+  document.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+    if (!confirm(`Delete ALL listings for "${b.dataset.name}"? This cannot be undone.`)) return;
+    b.disabled = true; const n = await deleteArea(b.dataset.del); alert(`Deleted ${n} listings.`); refresh();
+  }));
+}
+
+function readSheet(file) {
+  return new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      try {
+        const wb = XLSX.read(new Uint8Array(fr.result), { type: "array" });
+        res(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: null, raw: true }));
+      } catch (e) { rej(e); }
+    };
+    fr.onerror = rej; fr.readAsArrayBuffer(file);
+  });
+}
+
+const areaFromName = (n) => n.replace(/\.(csv|xlsx?|xls)$/i, "").replace(/[_-]+/g, " ")
+  .replace(/\b(property|properties|fmv|data|list)\b/gi, "").trim().replace(/\s+/g, " ") || "Unnamed area";
+
+async function stage(files) {
+  staged = [];
+  for (const f of files) staged.push({ file: f, area: areaFromName(f.name), rows: await readSheet(f) });
+  await recount();
+}
+
+async function recount() {
+  const tb = $("preview").querySelector("tbody"); tb.innerHTML = "";
+  for (const s of staged) {
+    s.docs = []; s.errors = []; const seen = new Set(); s.dups = 0;
+    for (let i = 0; i < s.rows.length; i++) {
+      const p = await rowToProperty(s.rows[i], s.area);
+      if (p.error) { s.errors.push(`row ${i + 2}: ${p.error}`); continue; }
+      if (seen.has(p.id)) { s.dups++; continue; }
+      seen.add(p.id); s.docs.push(p);
+    }
+    s.newN = s.docs.filter((d) => !existing.has(d.id)).length;
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${s.file.name}</td><td><input type="text" value="${s.area}"></td><td>${s.rows.length}</td>
+      <td><span class="pill ok">${s.newN}</span></td><td><span class="pill">${s.docs.length - s.newN}</span></td>
+      <td>${s.dups}</td><td>${s.errors.length ? `<span class="pill bad" title="${s.errors.slice(0, 15).join("\n")}">${s.errors.length}</span>` : "0"}</td>`;
+    tr.querySelector("input").onchange = (e) => { s.area = e.target.value.trim() || s.area; recount(); };
+    tb.appendChild(tr);
+  }
+  $("preview").hidden = !staged.length;
+  $("btnUpload").disabled = !staged.some((s) => s.docs.length);
+}
+
+$("files").onchange = (e) => stage([...e.target.files]);
+const drop = $("drop");
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); stage([...e.dataTransfer.files]); };
+
+$("btnUpload").onclick = async () => {
+  const btn = $("btnUpload"), prog = $("prog"), log = $("log");
+  btn.disabled = true; prog.hidden = false; log.textContent = "";
+  try {
+    for (const s of staged) {
+      if (!s.docs.length) continue;
+      log.textContent += `Uploading ${s.area}… `;
+      await upsertMany("properties", s.docs, (d, t) => { prog.value = d; prog.max = t; });
+      await saveArea(slug(s.area), { name: s.area, lastFile: s.file.name });
+      log.textContent += `✓ ${s.newN} added, ${s.docs.length - s.newN} updated, ${s.dups} duplicates skipped\n`;
+    }
+    staged = []; $("preview").hidden = true; $("files").value = "";
+    await refresh();
+  } catch (e) { log.textContent += `\n✗ ${e.message}`; }
+  prog.hidden = true;
+};
+
+$("placesFile").onchange = () => ($("btnPlaces").disabled = !$("placesFile").files.length);
+$("btnPlaces").onclick = async () => {
+  const rows = await readSheet($("placesFile").files[0]);
+  const docs = rows.map((r) => {
+    const o = {}; for (const [k, v] of Object.entries(r)) o[String(k).trim().toLowerCase()] = v;
+    if (!o.column) return null;
+    const lat = parseFloat(o.lat), lng = parseFloat(o.lng);
+    return { id: keyOf(o.column), name: String(o.name || o.column), category: String(o.category || "").toLowerCase(),
+      lat: Number.isFinite(lat) ? lat : null, lng: Number.isFinite(lng) ? lng : null, source: o.source || "" };
+  }).filter(Boolean);
+  await upsertMany("places", docs);
+  $("placesLog").textContent = `✓ Saved ${docs.length} places (${docs.filter((d) => d.lat != null).length} with map pins).`;
+};
+</script></body></html>
