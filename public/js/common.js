@@ -191,7 +191,7 @@ export function placeMeta(key, placesById) {
 export const inr = (v) => (!v ? "N/A" : v >= 1e7 ? `₹${(v / 1e7).toFixed(2)} Cr` : `₹${(v / 1e5).toFixed(1)} L`);
 export const fmt = (v) => (v == null ? "-" : Number(v).toLocaleString("en-IN"));
 
-function hav(a, b, c, d) {
+export function hav(a, b, c, d) {
   const p = Math.PI / 180, x = Math.sin((c - a) * p / 2) ** 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2;
   return 2 * 6371 * Math.asin(Math.sqrt(x));
 }
