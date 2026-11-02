@@ -23,12 +23,9 @@ progress{width:100%;height:10px}.row{display:flex;gap:10px;align-items:center;fl
 #log{font-size:13px;white-space:pre-wrap}
 </style></head><body>
 <header><h1>📤 Upload property data</h1>
-<div class="row"><span id="who" class="muted"></span><button id="btnAuth" class="ghost">Sign in</button><a href="./">Open map →</a></div></header>
+<div class="row"><a href="./">Open map →</a></div></header>
 <main>
-<section class="card" id="locked"><h2>Sign in required</h2>
-<p class="muted">Only the site owner can upload or delete data. Anyone can view the map.</p></section>
-
-<section class="card" id="uploadCard" hidden>
+<section class="card" id="uploadCard">
 <h2>1 · Property spreadsheets</h2>
 <p class="muted">CSV or Excel (.xlsx), same columns as the Kokapet sheet. One file = one area; the area name comes from the file name and you can edit it.
 Rows already in the database are <b>updated</b>, new rows are <b>added</b>, duplicates are <b>skipped</b>.</p>
@@ -39,7 +36,7 @@ Drop files here or <b>click to choose</b></label>
 <div id="log" class="muted" style="margin-top:8px"></div>
 </section>
 
-<section class="card" id="placesCard" hidden>
+<section class="card" id="placesCard">
 <h2>2 · Place locations <span class="muted">(optional)</span></h2>
 <p class="muted">CSV with columns <code>column, name, category, lat, lng</code>. Gives each distance column a proper name, category and map pin.
 Categories: hospital, school, college, it, shopping, park, gym, worship, transport. Rows without lat/lng still set the name &amp; category.</p>
@@ -47,28 +44,19 @@ Categories: hospital, school, college, it, shopping, park, gym, worship, transpo
 <div id="placesLog" class="muted" style="margin-top:8px"></div>
 </section>
 
-<section class="card" id="areasCard" hidden>
+<section class="card" id="areasCard">
 <h2>Areas in the database</h2>
 <table id="areas"><thead><tr><th>Area</th><th>Listings</th><th>Projects</th><th>Last upload</th><th></th></tr></thead><tbody></tbody></table>
 </section>
 </main>
 
 <script type="module">
-import { onUser, login, logout, fetchAll, upsertMany, saveArea, deleteArea, ADMIN_EMAIL } from "./js/db.js";
+import { fetchAll, upsertMany, saveArea, deleteArea } from "./js/db.js";
 import { rowToProperty, slug, keyOf } from "./js/common.js";
 const $ = (id) => document.getElementById(id);
 let existing = new Set(), staged = [];
 
-onUser(async (u) => {
-  const ok = u && u.email === ADMIN_EMAIL;
-  $("who").textContent = u ? u.email : "";
-  $("btnAuth").textContent = u ? "Sign out" : "Sign in";
-  $("btnAuth").onclick = () => (u ? logout() : login().then((m) => m && alert(m)).catch((e) => alert(e.message)));
-  $("locked").hidden = ok;
-  ["uploadCard", "placesCard", "areasCard"].forEach((id) => ($(id).hidden = !ok));
-  if (u && !ok) $("locked").innerHTML = `<h2>Not allowed</h2><p class="muted">${u.email} is not the admin account (${ADMIN_EMAIL}).</p>`;
-  if (ok) refresh();
-});
+refresh();
 
 async function refresh() {
   const data = await fetchAll();

@@ -21,15 +21,10 @@ create table if not exists public.areas (
   updated_at timestamptz default now()
 );
 
--- Security: anyone can read; only the admin email can write.
+-- Security: no sign-in. Anyone can read, add, change and delete data.
 alter table public.properties enable row level security;
 alter table public.places     enable row level security;
 alter table public.areas      enable row level security;
-
-create or replace function public.is_admin() returns boolean
-language sql stable as $$
-  select coalesce(auth.jwt() ->> 'email', '') = 'kothurisrujana@gmail.com'
-$$;
 
 do $$
 declare t text;
@@ -37,10 +32,13 @@ begin
   foreach t in array array['properties','places','areas'] loop
     execute format('drop policy if exists "public read" on public.%I', t);
     execute format('drop policy if exists "admin write" on public.%I', t);
+    execute format('drop policy if exists "public write" on public.%I', t);
     execute format('create policy "public read" on public.%I for select using (true)', t);
-    execute format('create policy "admin write" on public.%I for all to authenticated using (public.is_admin()) with check (public.is_admin())', t);
+    execute format('create policy "public write" on public.%I for all using (true) with check (true)', t);
   end loop;
 end $$;
+
+drop function if exists public.is_admin();
 
 -- Handy SQL once data is in, e.g. median ₹/sqft per area:
 -- select area_id, count(*), percentile_cont(0.5) within group (order by (data->>'psf')::numeric)

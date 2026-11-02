@@ -1,24 +1,8 @@
 // All Supabase access lives here (same functions the pages used with Firebase).
 import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
-import { SUPABASE_URL, SUPABASE_ANON_KEY, ADMIN_EMAIL } from "./supabase-config.js";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./supabase-config.js";
 
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-export { ADMIN_EMAIL };
-
-// ---- auth: passwordless email link sent to the admin address ----
-export function onUser(cb) {
-  sb.auth.getSession().then(({ data }) => cb(data.session?.user ?? null));
-  sb.auth.onAuthStateChange((_e, session) => cb(session?.user ?? null));
-}
-export async function login() {
-  const { error } = await sb.auth.signInWithOtp({
-    email: ADMIN_EMAIL,
-    options: { emailRedirectTo: location.origin + location.pathname, shouldCreateUser: true },
-  });
-  if (error) throw error;
-  return `A sign-in link was sent to ${ADMIN_EMAIL}. Open it on this device.`;
-}
-export const logout = () => sb.auth.signOut();
 
 // ---- reads (paged: Supabase returns at most 1000 rows per request) ----
 async function readAll(table) {
