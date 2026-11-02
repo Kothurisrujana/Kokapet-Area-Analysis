@@ -196,7 +196,8 @@ function buildZones(projects) {
   if (!sites.length) return;
 
   const known = sites.map((s) => s.psf).sort((a, b) => a - b);
-  const cuts = [known[Math.floor(known.length / 3)], known[Math.floor((2 * known.length) / 3)]];
+  // whole rupees, so the price key never shows decimals
+  const cuts = [Math.floor(known[Math.floor(known.length / 3)]), Math.floor(known[Math.floor((2 * known.length) / 3)])];
   sites.forEach((s) => (s.level = s.psf < cuts[0] ? "low" : s.psf < cuts[1] ? "medium" : "high"));
 
   // The area outline wraps every project location with about 350 m of margin
