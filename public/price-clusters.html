@@ -67,9 +67,13 @@ th { color: var(--muted); font-weight: 600; font-size: 13px; }
 <style>html,body{margin:0}</style></head><body>
 <div class="wrap">
   <h1>Kokapet and Manchirevula Price Clusters</h1>
-  <p class="intro">For every cluster you can see what it is, what homes cost, and whether prices run higher or lower than the rest of that area.</p>
+  <p class="intro">Each area is shown on its own. For every cluster you can see what it is, what homes cost, and whether prices run higher or lower than the rest of that area.</p>
   <div id="sections"></div>
   <ul class="foot">
+    <li>Projects are placed in clusters using their location, type, height, status and price. These rules are a judgement and can be changed.</li>
+    <li>Each project location takes the land closest to it, and touching land in one cluster joins up. Cluster edges aren't official boundaries and can include empty land, roads and lakes.</li>
+    <li>These are asking prices, not sale prices. "Most homes" is the middle half of listings in a cluster.</li>
+    <li>Higher, Lower and Varying compare price per sqft with the rest of that area, so bigger homes don't look pricier just for being bigger. They don't show change over time, because the listings have no dates. The reasons given are likely influences, not proven causes.</li>
     <li>Map image © OpenStreetMap contributors.</li>
   </ul>
 </div>
@@ -137,6 +141,7 @@ function drawChart(box, clusters) {
 const host = document.getElementById("sections");
 Object.entries(DATA).forEach(([area, d]) => {
   const sec = document.createElement("section");
+  const dashed = d.pins.filter((p) => p.why || p.general);
   sec.innerHTML = `<h2>${area}</h2>
     ${NOTES[area] ? `<p class="notice">${esc(NOTES[area])}</p>` : ""}
     <div class="grid"><div class="map" role="application" aria-label="${area} clusters map"></div><div class="list"></div></div>
@@ -165,6 +170,11 @@ Object.entries(DATA).forEach(([area, d]) => {
     b.onclick = () => { if (poly) { map.fitBounds(poly.getBounds(), { padding: [40, 40], maxZoom: 16 }); poly.openPopup(); } };
     list.appendChild(b);
   });
+  if (dashed.length) {
+    const n = document.createElement("div"); n.className = "cl"; n.style.cursor = "default";
+    n.innerHTML = `<small><b style="display:inline;color:var(--fg)">Dashed markers:</b> ${dashed.map((p) => `${esc(p.name)} (${p.units.length})`).join(", ")}. ${area === "Kokapet" ? "Its price looks like a data error, so it isn't counted." : "These have only a general location. Their prices are counted in C2 or C5, but they don't shape the map."}</small>`;
+    list.appendChild(n);
+  }
   d.pins.forEach((p) => {
     const n = p.units.length, s = Math.round(18 + Math.sqrt(n) * 2.6), dash = p.why || p.general;
     L.marker([p.lat, p.lng], { title: p.name, icon: L.divIcon({ className: "", iconSize: [s, s], html: `<div class="pin${dash ? " dash" : ""}">${n}</div>` }) })
