@@ -19,6 +19,10 @@ label{display:block;margin:6px 0 2px;color:#555}select,input[type=range]{width:1
 .legend{height:10px;border-radius:5px;margin-top:8px;background:linear-gradient(90deg,#00c853,#ffeb3b,#ff9800,#d50000)}
 .lg{display:flex;justify-content:space-between;font-size:11px;color:#666}
 .cat{display:flex;align-items:center;gap:6px;margin:3px 0;cursor:pointer}
+.swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.zones tr{cursor:pointer}.zones tr:hover td{background:#f4f6fb}.zones td,.zones th{font-size:12px}
+.zlabel{background:rgba(255,255,255,.88);border:0;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,.25);font-size:11px;font-weight:600;padding:2px 6px}
+.zlabel::before{display:none}
 .cnt{display:flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:700;
  font-size:11px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
 .poi{font-size:15px;line-height:22px;text-align:center;width:26px;height:26px;border-radius:50%;background:#fff;border:2px solid;box-shadow:0 1px 3px rgba(0,0,0,.3)}
@@ -47,21 +51,26 @@ th{position:sticky;top:0;background:#fff}
 <label>Type</label><select id="fType"><option value="">All</option></select>
 <label>BHK</label><select id="fBhk"><option value="">All</option></select>
 <label>Status</label><select id="fStatus"><option value="">All</option></select>
+<label>Budget cluster</label><select id="fBudget"><option value="">All</option></select>
 <label>Locality type</label><select id="fLoc"><option value="">All</option></select>
 <label>Max price: <span id="pLbl"></span></label><input type="range" id="fPrice">
 <label>Min livability score: <span id="lLbl"></span></label><input type="range" id="fLiv" min="0" max="100" value="0">
 <h2>Layers</h2>
-<div class="row"><label><input type="checkbox" id="tHeat" checked> Density heatmap</label>
+<div class="row"><label><input type="checkbox" id="tZone" checked> Budget clusters</label>
+<label><input type="checkbox" id="tHeat"> Density heatmap</label>
 <label><input type="checkbox" id="tMark" checked> Projects</label></div>
-<div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div>
+<div id="heatKey" hidden><div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div></div>
+<div id="zoneKey"><h2>Budget clusters</h2><table class="zones"><thead><tr><th>Zone</th><th>Projects</th><th>Median ₹/sqft</th></tr></thead><tbody id="zoneList"></tbody></table>
+<div class="muted" style="font-size:11px;margin-top:4px">Zones group nearby projects with similar asking prices. Labels compare zones within each area. A dot's colour shows that project's own price level.</div></div>
 <h2>Infrastructure</h2><div id="catList"></div>
 <label>Base map</label><select id="fBase"><option value="osm">Street</option><option value="sat">Satellite</option><option value="light">Light</option></select>
 </div>
 <script type="module">
 import { fetchAll } from "./js/db.js";
-import { CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
+import { BUDGETS, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
 const $ = (id) => document.getElementById(id);
-let D, map, heat, projLayer, linkLayer, poiLayers = {}, bases, placesById = {}, pinned = [];
+let D, map, heat, projLayer, linkLayer, zoneLayer, poiLayers = {}, bases, placesById = {}, pinned = [];
+const budgetColor = (b) => BUDGETS[b]?.color ?? "#9e9e9e";
 
 const fill = (sel, vals) => [...new Set(vals)].filter((v) => v != null && v !== "").sort((a, b) => (a > b ? 1 : -1))
   .forEach((v) => sel.add(new Option(v, v)));
@@ -91,23 +100,30 @@ async function start() {
   fill($("fArea"), units.map((u) => u.area)); fill($("fType"), units.map((u) => u.type));
   fill($("fBhk"), units.map((u) => u.bhk)); fill($("fStatus"), units.map((u) => u.status));
   fill($("fLoc"), D.projects.map((p) => p.profile.type));
+  Object.entries(BUDGETS).forEach(([k, b]) => $("fBudget").add(new Option(b.label, k)));
   const maxP = Math.max(...units.map((u) => u.price || 0));
   const pr = $("fPrice"); pr.min = 0; pr.max = Math.ceil(maxP); pr.step = 500000; pr.value = pr.max;
 
   heat = L.heatLayer([], { radius: 35, blur: 25, maxZoom: 16, minOpacity: 0.35,
     gradient: { 0.2: "#00c853", 0.45: "#c6ff00", 0.6: "#ffeb3b", 0.75: "#ff9800", 0.9: "#ff5722", 1: "#d50000" } });
+  zoneLayer = L.layerGroup().addTo(map);
   linkLayer = L.layerGroup().addTo(map);
   projLayer = L.layerGroup().addTo(map);
   buildPois();
-  ["fArea", "fType", "fBhk", "fStatus", "fLoc", "fPrice", "fLiv", "tHeat", "tMark"].forEach((id) => $(id).addEventListener("input", render));
+  ["fArea", "fType", "fBhk", "fStatus", "fBudget", "fLoc", "fPrice", "fLiv", "tZone", "tHeat", "tMark"].forEach((id) => $(id).addEventListener("input", render));
   $("fArea").addEventListener("input", fit);
   render(); fit();
 }
 
+// Keeps the fitted area clear of the side panel (on phones the panel sits at the bottom)
+const fitPadding = () => (innerWidth > 640
+  ? { paddingTopLeft: [40, 40], paddingBottomRight: [330, 40], maxZoom: 15 }
+  : { paddingTopLeft: [20, 20], paddingBottomRight: [20, innerHeight * 0.45 + 20], maxZoom: 15 });
+
 function fit() {
   const a = $("fArea").value;
   const pts = D.projects.filter((p) => !a || p.area === a).map((p) => [p.lat, p.lng]);
-  if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 15 });
+  if (pts.length) map.fitBounds(pts, fitPadding());
 }
 
 function buildPois() {
@@ -132,14 +148,48 @@ function buildPois() {
   });
 }
 
+function zoneSummary(z) {
+  const prices = z.units.map((u) => u.price).filter(Boolean);
+  const range = prices.length ? `${inr(Math.min(...prices))} – ${inr(Math.max(...prices))}` : "N/A";
+  const names = [...z.projects].sort((a, b) => (b.avgPsf ?? 0) - (a.avgPsf ?? 0))
+    .map((p) => `<tr><td><span class="swatch" style="background:${budgetColor(p.budget)}"></span>${p.name}</td><td>₹${fmt(p.avgPsf)}</td></tr>`).join("");
+  return `<div style="font-size:12px"><b style="font-size:14px;color:${budgetColor(z.budget)}">${z.name}</b><br>
+    ${z.units.length} listing(s) · ${z.projects.length} project(s) · ${z.projects[0].area}<br>Median <b>₹${fmt(z.psf)}/sqft</b> · ${range}
+    <div style="max-height:180px;overflow:auto;margin-top:6px"><table><tr><th>Project</th><th>Avg ₹/sqft</th></tr>${names}</table></div></div>`;
+}
+
+function renderZones(fa, fz) {
+  zoneLayer.clearLayers();
+  const on = $("tZone").checked;
+  $("zoneKey").hidden = !on;
+  $("heatKey").hidden = !$("tHeat").checked;
+  if (!on) return;
+  const zones = [...new Set(D.projects.map((p) => p.zone))].filter((z) => (!fa || z.projects[0].area === fa) && (!fz || z.budget === fz))
+    .sort((a, b) => a.projects[0].area.localeCompare(b.projects[0].area) || (a.psf ?? 0) - (b.psf ?? 0));
+  const multi = new Set(zones.map((z) => z.projects[0].area)).size > 1;
+  const body = $("zoneList"); body.innerHTML = "";
+  zones.forEach((z) => {
+    const poly = L.polygon(z.polygon, { color: budgetColor(z.budget), weight: 2, fillOpacity: 0.28 })
+      .bindPopup(() => zoneSummary(z), { maxWidth: 340 })
+      .bindTooltip(`${z.name} · ₹${fmt(z.psf)}`, { permanent: true, direction: "center", className: "zlabel" });
+    zoneLayer.addLayer(poly);
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td><span class="swatch" style="background:${budgetColor(z.budget)}"></span>${multi ? z.projects[0].area + " · " : ""}${z.name}</td>
+      <td>${z.projects.length}</td><td>₹${fmt(z.psf)}</td>`;
+    tr.onclick = () => { map.fitBounds(poly.getBounds(), fitPadding()); poly.openPopup(); };
+    body.appendChild(tr);
+  });
+}
+
 function render() {
   const fa = $("fArea").value, ft = $("fType").value, fb = $("fBhk").value, fs = $("fStatus").value,
-    fl = $("fLoc").value, fp = +$("fPrice").value, fv = +$("fLiv").value;
+    fz = $("fBudget").value, fl = $("fLoc").value, fp = +$("fPrice").value, fv = +$("fLiv").value;
   $("pLbl").textContent = inr(fp); $("lLbl").textContent = fv;
   projLayer.clearLayers(); linkLayer.clearLayers();
+  renderZones(fa, fz);
   const pts = [], shown = [];
   D.projects.forEach((p) => {
-    if ((fa && p.area !== fa) || (fl && p.profile.type !== fl) || (p.profile.livability ?? 0) < fv) return;
+    if ((fa && p.area !== fa) || (fz && p.zone.budget !== fz) || (fl && p.profile.type !== fl) || (p.profile.livability ?? 0) < fv) return;
     const u = p.units.filter((x) => (!ft || x.type == ft) && (!fb || x.bhk == fb) && (!fs || x.status == fs) && (!x.price || x.price <= fp));
     if (u.length) { shown.push({ ...p, units: u }); u.forEach(() => pts.push([p.lat, p.lng, 1])); }
   });
@@ -154,7 +204,7 @@ function render() {
   shown.forEach((p) => {
     const n = p.units.length, d = Math.round(20 + Math.sqrt(n) * 6);
     const icon = L.divIcon({ className: "", iconSize: [d, d],
-      html: `<div class="cnt" style="width:${d}px;height:${d}px;background:${heatColor(n / maxN)}">${n}</div>` });
+      html: `<div class="cnt" style="width:${d}px;height:${d}px;background:${$("tZone").checked ? budgetColor(p.budget) : heatColor(n / maxN)}">${n}</div>` });
     const m = L.marker([p.lat, p.lng], { icon }).bindPopup(() => tip(p), { maxWidth: 600, autoPanPaddingTopLeft: [20, 20], autoPanPaddingBottomRight: [330, 20] });
     m.on("mouseover", () => m.openPopup());
     m.on("popupopen", () => drawLinks(p)); m.on("popupclose", () => linkLayer.clearLayers());
@@ -198,7 +248,7 @@ function tip(p) {
   const cs = Object.entries(pr.catScores).map(([k, v]) => `<div>${CATS[k].icon} ${CATS[k].label}
      <div class="bar"><span style="width:${v}%;background:${scoreColor(v)}"></span></div></div>`).join("");
   return `<div class="tip"><h3>${p.name}</h3>
-   <div><span class="badge">📍 ${p.area}</span><span class="badge">${pr.type}</span><span class="badge">${pr.zone}</span></div>
+   <div><span class="badge">📍 ${p.area}</span><span class="badge">🗺️ ${p.zone.name} zone</span><span class="badge">${pr.type}</span><span class="badge">${pr.zone}</span></div>
    <div class="muted" style="margin-top:4px">${p.units.length} listing(s) · ${p.range} · Avg ₹${fmt(p.avgPsf)}/sqft · Livability
      <b style="color:${scoreColor(pr.livability)}">${pr.livability ?? "-"}/100</b></div>
    <div class="tabs"><button class="on" onclick="tab(this,'a${uid}')">🏠 Units</button>
