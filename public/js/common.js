@@ -19,6 +19,76 @@ export const LEVELS = {
   high:   { label: "High-price",    color: "#c5302b" },
 };
 
+// Point-to-line distance in km, for the Outer Ring Road stretch past Manchirevula
+function kmFromOrr(lat, lng) {
+  const kmX = 111.32 * Math.cos((lat * Math.PI) / 180), kmY = 110.57;
+  const a = { x: 78.3529966 * kmX, y: 17.4030921 * kmY }, b = { x: 78.3561653 * kmX, y: 17.3570166 * kmY }, p = { x: lng * kmX, y: lat * kmY };
+  const dx = b.x - a.x, dy = b.y - a.y, t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+}
+
+// Named clusters per area. An area listed here uses these instead of the three price levels.
+const AREA_CLUSTERS = {
+  kokapet: {
+    levels: {
+      1: { label: "The Ultra-Premium Neopolis & Inner Core Cluster", color: "#2a78d6",
+        desc: "Apartment towers in northern Kokapet, including the Neopolis side.",
+        why: "Being closer to the Financial District, and tall new towers, may be pushing prices up." },
+      2: { label: "The Golden Mile & Main Road Commercial Hub", color: "#eb6834",
+        desc: "Apartments on the eastern side, along Golden Mile Road.",
+        why: "Main-road access helps, but many lower-rise buildings may be holding prices down." },
+      3: { label: "The Scenic Lake-Adjacent & Gated Villa Cluster", color: "#1baf7a",
+        desc: "Gated villa communities across Kokapet.",
+        why: "Villas are the main reason prices are high. The lake's own effect can't be measured, because the sheet's lake distances aren't reliable." },
+      4: { label: "The Outer Peripheral & Value-Focused Hub", color: "#eda100",
+        desc: "Apartments in the western and central parts, away from Golden Mile Road.",
+        why: "Being away from the main road may keep many prices lower, while a few pricier towers make the cluster mixed." },
+    },
+    assign: (p) => (p.villa ? "3" : p.lat >= 17.4 ? "1" : p.lng >= 78.335 ? "2" : "4"),
+  },
+  manchirevula: {
+    levels: {
+      C1: { label: "Metro Station / Highway Belt", color: "#2a78d6",
+        desc: "High-density commercial and transit-oriented apartments. Here, these are within 600 m of the Outer Ring Road.",
+        why: "Road access doesn't show up as a higher price here, but this cluster has very few listings." },
+      C2: { label: "Deepthisri Nagar / Madhavaram Colony", color: "#eb6834",
+        desc: "Premium, highly-demanded, calm residential layouts. Here, these are villa communities.",
+        why: "Large villas in gated communities are the main reason prices are high." },
+      C3: { label: "Madeenaguda / Chanda Nagar Border", color: "#1baf7a",
+        desc: "Blended residential zone with rapid access to shopping districts.",
+        why: "Being close to shops and Golden Mile Road may be pushing prices up." },
+      C4: { label: "Bachupally / Mallampet Road", color: "#eda100",
+        desc: "High-growth corridor featuring massive under-construction high-rises.",
+        why: "Homes are large, so they cost a lot in total, but unfinished towers may be cheaper for their size. Some listings are also well below the builder's price." },
+      C5: { label: "Ameenpur / Lake Fringe", color: "#e87ba4",
+        desc: "Budget-friendly value pocket with newer low-to-mid rise societies.",
+        why: "Lower-rise buildings and smaller homes may be keeping prices down." },
+    },
+    assign: (p) => {
+      if (p.villa) return "C2";
+      if (p.maxFloors >= 30 && !p.ready) return "C4";
+      if (/unnamed/i.test(p.name)) return "C5";
+      if (kmFromOrr(p.lat, p.lng) <= 0.6) return "C1";
+      return p.medianPsf <= 7000 ? "C5" : "C3";
+    },
+  },
+};
+export const levelsFor = (areaId) => AREA_CLUSTERS[areaId]?.levels ?? LEVELS;
+
+// What homes cost in a group of listings, and how its prices compare with the rest of the area.
+// The comparison uses price per sqft so bigger homes don't look pricier just for being bigger:
+// it's how often a listing here beats a listing elsewhere in the area.
+export function priceStory(units, others) {
+  const cost = units.map((u) => u.price).filter(Boolean).sort((a, b) => a - b);
+  const at = (f) => { const i = f * (cost.length - 1), lo = Math.floor(i); return cost[lo] + (cost[Math.ceil(i)] - cost[lo]) * (i - lo); };
+  const a = units.map((u) => u.psf).filter(Boolean), b = others.map((u) => u.psf).filter(Boolean);
+  let wins = 0;
+  a.forEach((x) => b.forEach((y) => { wins += x > y ? 1 : x === y ? 0.5 : 0; }));
+  const share = a.length && b.length ? wins / (a.length * b.length) : 0.5;
+  return { low: cost[0], high: cost[cost.length - 1], mostLow: at(0.25), mostHigh: at(0.75),
+    trend: share >= 0.6 ? "Higher" : share <= 0.4 ? "Lower" : "Varying" };
+}
+
 // Columns that describe the property itself (everything else numeric = a distance in km)
 const CORE = new Set(["s.0", "s.no", "name of the project", "type", "bhk", "area_sqft", "no.of bathrooms",
   "floors", "floor no", "facing", "furnishing status", "status", "asking price", "price_numeric",
@@ -165,21 +235,27 @@ function clipCloser(poly, a, b, j) {
 // Listings that would mislead the zones. They stay on the map but don't shape or label any zone.
 const NOT_IN_ZONES = {
   kokapet: [{ project: "sriram river view", why: "Its one listing shows ₹2,499/sqft, far below this project's other asking prices, so it looks like a data error." }],
-  manchirevula: [{ at: [17.3736, 78.3489], why: "These listings have no project name and only a general location for the area." }],
+  manchirevula: [{ at: [17.3736, 78.3489], counted: true, why: "These listings have no project name and only a general location for the area." }],
 };
-const leftOutReason = (pj) => (NOT_IN_ZONES[pj.areaId] || []).find((r) => (r.project ? r.project === pj.name.toLowerCase()
-  : r.at[0] === +pj.lat.toFixed(4) && r.at[1] === +pj.lng.toFixed(4)))?.why ?? null;
+const leftOutRule = (pj) => (NOT_IN_ZONES[pj.areaId] || []).find((r) => (r.project ? r.project === pj.name.toLowerCase()
+  : r.at[0] === +pj.lat.toFixed(4) && r.at[1] === +pj.lng.toFixed(4)));
 
-// Divide one area into price zones. The cheapest third of project locations are low, the middle third
-// medium and the top third high. Each location takes the land nearest to it, and touching land at the
-// same level joins into one zone, so zones never overlap and a project's level always matches its zone.
+// Divide one area into zones. Each project location takes the land nearest to it, and touching land in
+// the same group joins into one zone, so zones never overlap. The group is the area's named cluster, or
+// otherwise its price level: the cheapest third of locations are low, the middle third medium, the top high.
 function buildZones(projects) {
-  const areaName = projects[0].area;
+  const areaName = projects[0].area, defs = AREA_CLUSTERS[projects[0].areaId];
   const kmX = 111.32 * Math.cos((projects[0].lat * Math.PI) / 180), kmY = 110.57;
   const toLatLng = (p) => [+(p.y / kmY).toFixed(6), +(p.x / kmX).toFixed(6)];
   projects.forEach((pj) => {
     pj.medianPsf = median(pj.units.map((u) => u.psf).filter(Boolean));
-    pj.leftOut = leftOutReason(pj); pj.level = null; pj.zone = null;
+    const rule = leftOutRule(pj);
+    pj.leftOut = rule?.why ?? null; pj.level = null; pj.zone = null;
+    pj.villa = pj.units.filter((u) => /villa/i.test(u.type)).length > pj.units.length / 2;
+    pj.maxFloors = Math.max(0, ...pj.units.map((u) => u.floors || 0));
+    pj.ready = pj.units.filter((u) => /ready/i.test(u.status)).length > pj.units.length / 2;
+    // named clusters still count listings with only a general location; a suspect price stays out
+    if (defs && pj.medianPsf && (!rule || rule.counted)) pj.level = defs.assign(pj);
   });
   const byPlace = new Map();
   projects.filter((pj) => !pj.leftOut && pj.medianPsf).forEach((pj) => {
@@ -198,7 +274,8 @@ function buildZones(projects) {
   const known = sites.map((s) => s.psf).sort((a, b) => a - b);
   // whole rupees, so the price key never shows decimals
   const cuts = [Math.floor(known[Math.floor(known.length / 3)]), Math.floor(known[Math.floor((2 * known.length) / 3)])];
-  sites.forEach((s) => (s.level = s.psf < cuts[0] ? "low" : s.psf < cuts[1] ? "medium" : "high"));
+  sites.forEach((s) => (s.level = defs ? s.pjs.reduce((a, p) => (p.units.length > a.units.length ? p : a)).level
+    : s.psf < cuts[0] ? "low" : s.psf < cuts[1] ? "medium" : "high"));
 
   // The area outline wraps every project location with about 350 m of margin
   const margin = 0.35;
@@ -235,13 +312,13 @@ function buildZones(projects) {
     }));
     const big = list.reduce((a, s) => (area(s.cell) > area(a.cell) ? s : a)).cell;
     const mid = { x: big.reduce((a, p) => a + p.x, 0) / big.length, y: big.reduce((a, p) => a + p.y, 0) / big.length };
-    return { level: list[0].level, area: areaName, cuts, projects: pjs, units, edges, label: toLatLng(mid),
+    return { level: list[0].level, area: areaName, cuts: defs ? null : cuts, projects: pjs, units, edges, label: toLatLng(mid),
       polygon: list.map((s) => s.cell.map(toLatLng)), psf: Math.round(median(units.map((u) => u.psf).filter(Boolean))) };
   });
-  Object.keys(LEVELS).forEach((level) => {
+  Object.keys(levelsFor(projects[0].areaId)).forEach((level) => {
     zones.filter((z) => z.level === level).sort((a, b) => a.psf - b.psf).forEach((z, i) => {
-      z.id = `${level[0].toUpperCase()}${i + 1}`;
-      z.projects.forEach((pj) => { pj.zone = z; pj.level = level; });
+      z.id = defs ? level : `${level[0].toUpperCase()}${i + 1}`;
+      z.projects.forEach((pj) => { pj.zone = z; pj.level = defs ? pj.level : level; });
     });
   });
 }
@@ -300,7 +377,7 @@ export function buildProjects(properties, placesById) {
       sum += scores[cat] * c.w; wsum += c.w;
     }
     const livability = wsum ? Math.round((100 * sum) / wsum) : null;
-    const tier = pj.level ? LEVELS[pj.level].label : "Unclassified";
+    const tier = AREA_CLUSTERS[pj.areaId] ? "" : pj.level ? `${LEVELS[pj.level].label} ` : "Unclassified ";
     const villa = pj.units.filter((u) => /villa/i.test(u.type)).length / pj.units.length;
     const maxFloors = Math.max(0, ...pj.units.map((u) => u.floors || 0));
     const form = villa >= 0.5 ? "Villa community" : maxFloors >= 20 ? "High-rise gated community" : "Mid-rise residential";
@@ -314,7 +391,7 @@ export function buildProjects(properties, placesById) {
     const zone = tags.includes("IT / business corridor") ? "Business-district residential"
       : tags.includes("School hub") || tags.includes("Healthcare-rich") ? "Family residential" : "Peripheral / growth residential";
     const neighbours = projects.filter((o) => o !== pj && hav(pj.lat, pj.lng, o.lat, o.lng) <= 1).length;
-    pj.profile = { type: `${tier} ${form}`, zone, tags, livability, neighbours,
+    pj.profile = { type: `${tier}${form}`, zone, tags, livability, neighbours,
       catScores: Object.fromEntries(Object.entries(scores).map(([k, v]) => [k, Math.round(v * 100)])) };
   }
   return projects;

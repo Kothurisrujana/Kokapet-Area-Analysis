@@ -20,8 +20,11 @@ label{display:block;margin:6px 0 2px;color:#555}select,input[type=range]{width:1
 .lg{display:flex;justify-content:space-between;font-size:11px;color:#666}
 .cat{display:flex;align-items:center;gap:6px;margin:3px 0;cursor:pointer}
 .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.zones tr{cursor:pointer}.zones tr:hover td{background:#f4f6fb}.zones td,.zones th{font-size:12px}
-.zones .names{white-space:normal;color:#777;font-size:11px;line-height:1.25}
+.panel{overflow-x:hidden}
+.cluster{display:block;width:100%;padding:9px 6px;border:0;border-top:1px solid #eee;background:none;color:inherit;font:inherit;font-size:12px;line-height:1.35;text-align:left;cursor:pointer}
+.cluster:hover{background:#f4f6fb}.cluster b{font-size:13px}.cluster p{margin:4px 0 0}
+.cluster .cost{font-weight:600}.cluster .names{color:#777;font-size:11px}
+.trend{display:inline-block;margin-right:4px;padding:0 6px;border-radius:9px;background:#eef0f4;color:#222;font-weight:700}
 .areas{display:flex;gap:4px;margin:0 0 10px;padding:3px;background:#eef0f4;border-radius:9px}
 .areas button{flex:1;min-width:0;border:0;border-radius:7px;background:none;padding:7px 4px;font:inherit;font-weight:600;color:#555;cursor:pointer}
 .areas button.on{background:#fff;color:#111;box-shadow:0 1px 3px rgba(0,0,0,.2)}
@@ -51,35 +54,37 @@ th{position:sticky;top:0;background:#fff}
 <div id="overlay">Loading properties from the database…</div>
 <div class="panel"><h1>🏙️ Property Map <a href="admin.html">Upload data</a></h1>
 <div class="areas" id="areaTabs"></div>
+<div class="muted" style="margin:-4px 0 10px;font-size:12px">Cluster views: <a href="price-clusters.html" style="color:#3949ab">Price clusters</a> · <a href="kokapet-manchirevula-map.html" style="color:#3949ab">Both areas map</a></div>
 <div class="kpis"><div class="kpi">Listings<b id="kTotal">–</b></div><div class="kpi">Projects<b id="kProj">–</b></div>
-<div class="kpi">Median price<b id="kMed">–</b></div><div class="kpi">Avg ₹/sqft<b id="kPsf">–</b></div></div>
+<div class="kpi">Lowest cost<b id="kLow">–</b></div><div class="kpi">Highest cost<b id="kHigh">–</b></div></div>
 <h2>Filter properties</h2>
 <label>Type</label><select id="fType"><option value="">All</option></select>
 <label>BHK</label><select id="fBhk"><option value="">All</option></select>
 <label>Status</label><select id="fStatus"><option value="">All</option></select>
-<label>Price level</label><select id="fLevel"><option value="">All</option></select>
+<label>Cluster</label><select id="fLevel"><option value="">All</option></select>
 <label>Locality type</label><select id="fLoc"><option value="">All</option></select>
 <label>Max price: <span id="pLbl"></span></label><input type="range" id="fPrice">
 <label>Min livability score: <span id="lLbl"></span></label><input type="range" id="fLiv" min="0" max="100" value="0">
 <h2>Layers</h2>
-<div class="row"><label><input type="checkbox" id="tZone" checked> Price zones</label>
+<div class="row"><label><input type="checkbox" id="tZone" checked> Clusters</label>
 <label><input type="checkbox" id="tHeat"> Density heatmap</label>
 <label><input type="checkbox" id="tMark" checked> Projects</label></div>
 <div id="heatKey" hidden><div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div></div>
-<div id="zoneKey"><h2>Price zones</h2><div class="key" id="levelKey"></div>
-<table class="zones" style="margin-top:6px"><thead><tr><th>Zone</th><th>Listings</th><th>Median ₹/sqft</th></tr></thead><tbody id="zoneList"></tbody></table>
+<div id="zoneKey"><h2>Clusters</h2><div class="key" id="levelKey"></div>
+<div id="zoneList"></div>
 <div class="muted" id="leftOut" style="font-size:11px;margin-top:6px"></div>
-<div class="muted" style="font-size:11px;margin-top:4px">Levels compare asking prices within this area only. Each project location takes the land nearest to it, so zone edges are not official boundaries.</div></div>
+<div class="muted" style="font-size:11px;margin-top:4px">These are asking prices. "Most homes" is the middle half of listings. Higher, Lower and Varying compare price per sqft with the rest of this area, not over time. Reasons are likely influences, not proven causes. Cluster edges are not official boundaries.</div></div>
 <h2>Infrastructure</h2><div id="catList"></div>
 <label>Base map</label><select id="fBase"><option value="osm">Street</option><option value="sat">Satellite</option><option value="light">Light</option></select>
 </div>
 <script type="module">
 import { fetchAll } from "./js/db.js";
-import { LEVELS, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
+import { levelsFor, priceStory, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
 const $ = (id) => document.getElementById(id);
 let D, map, heat, projLayer, linkLayer, zoneLayer, poiLayers = {}, poiOn = { hospital: true, school: true, it: true }, bases, placesById = {}, pinned = [], curArea;
-const levelColor = (l) => LEVELS[l]?.color ?? "#9e9e9e";
 const areaProjects = () => D.projects.filter((p) => p.area === curArea);
+const areaLevels = () => levelsFor(areaProjects()[0]?.areaId);
+const levelColor = (l) => areaLevels()[l]?.color ?? "#9e9e9e";
 
 const fill = (sel, vals) => {
   sel.length = 1;   // keep the "All" option
@@ -87,7 +92,6 @@ const fill = (sel, vals) => {
 };
 const heatColor = (t) => (t < 0.33 ? "#00c853" : t < 0.66 ? "#ff9800" : "#d50000");
 const scoreColor = (s) => (s >= 70 ? "#2e7d32" : s >= 50 ? "#f9a825" : "#e53935");
-const median = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
 
 async function start() {
   map = L.map("map").setView([17.40, 78.40], 12);
@@ -106,8 +110,6 @@ async function start() {
   placesById = Object.fromEntries(D.places.map((p) => [p.id, p]));
   pinned = D.places.filter((p) => p.lat != null && p.lng != null && CATS[p.category]);
   D.projects = buildProjects(D.properties, placesById);
-
-  Object.entries(LEVELS).forEach(([k, l]) => $("fLevel").add(new Option(l.label, k)));
 
   heat = L.heatLayer([], { radius: 35, blur: 25, maxZoom: 16, minOpacity: 0.35,
     gradient: { 0.2: "#00c853", 0.45: "#c6ff00", 0.6: "#ffeb3b", 0.75: "#ff9800", 0.9: "#ff5722", 1: "#d50000" } });
@@ -131,7 +133,8 @@ function setArea(a) {
   const pjs = areaProjects(), units = pjs.flatMap((p) => p.units);
   fill($("fType"), units.map((u) => u.type)); fill($("fBhk"), units.map((u) => u.bhk));
   fill($("fStatus"), units.map((u) => u.status)); fill($("fLoc"), pjs.map((p) => p.profile.type));
-  $("fLevel").value = "";
+  $("fLevel").length = 1;
+  Object.entries(areaLevels()).forEach(([k, l]) => $("fLevel").add(new Option(`${k.length < 3 ? k + " · " : ""}${l.label}`, k)));
   const pr = $("fPrice"); pr.min = 0; pr.max = Math.ceil(Math.max(0, ...units.map((u) => u.price || 0))); pr.step = 500000; pr.value = pr.max;
   $("fLiv").value = 0;
   buildPois(); render(); fit();
@@ -174,11 +177,11 @@ function buildPois() {
 function zoneSummary(z) {
   const prices = z.units.map((u) => u.price).filter(Boolean);
   const range = prices.length ? `${inr(Math.min(...prices))} – ${inr(Math.max(...prices))}` : "N/A";
-  const names = [...z.projects].sort((a, b) => a.medianPsf - b.medianPsf)
-    .map((p) => `<tr><td>${p.name}</td><td>₹${fmt(Math.round(p.medianPsf))}</td><td>${p.units.length}</td></tr>`).join("");
-  return `<div style="font-size:12px"><b style="font-size:14px;color:${levelColor(z.level)}">${LEVELS[z.level].label} zone ${z.id}</b><br>
-    ${z.units.length} listing(s) · ${z.projects.length} project(s)<br>Median <b>₹${fmt(z.psf)}/sqft</b> · ${range}
-    <div style="max-height:180px;overflow:auto;margin-top:6px"><table><tr><th>Project</th><th>Median ₹/sqft</th><th>Listings</th></tr>${names}</table></div></div>`;
+  const names = [...z.projects].sort((a, b) => a.name.localeCompare(b.name))
+    .map((p) => `<tr><td>${p.name}</td><td>${p.range}</td><td>${p.units.length}</td></tr>`).join("");
+  return `<div style="font-size:12px"><b style="font-size:14px;color:${levelColor(z.level)}">${z.id} · ${areaLevels()[z.level].label}</b><br>
+    ${z.units.length} listing(s) · ${z.projects.length} project(s) on this part of the map<br>Cost: <b>${range}</b>
+    <div style="max-height:180px;overflow:auto;margin-top:6px"><table><tr><th>Project</th><th>Cost</th><th>Listings</th></tr>${names}</table></div></div>`;
 }
 
 function renderZones(fz) {
@@ -189,21 +192,21 @@ function renderZones(fz) {
   if (!on) return;
   const pjs = areaProjects();
   const all = [...new Set(pjs.map((p) => p.zone).filter(Boolean))];
-  const order = Object.keys(LEVELS), zones = all.filter((z) => !fz || z.level === fz)
-    .sort((a, b) => order.indexOf(a.level) - order.indexOf(b.level) || a.psf - b.psf);
+  const levels = areaLevels(), order = Object.keys(levels), named = !all[0]?.cuts && all.length > 0;
+  const zones = all.filter((z) => !fz || z.level === fz).sort((a, b) => order.indexOf(a.level) - order.indexOf(b.level) || a.psf - b.psf);
 
   const cuts = all[0]?.cuts;
   const rupees = (v) => `₹${fmt(v)}`;
   const ranges = cuts ? { low: `under ${rupees(cuts[0])}`, medium: `${rupees(cuts[0])}–${rupees(cuts[1] - 1)}`, high: `${rupees(cuts[1])}+` } : {};
   $("levelKey").innerHTML = cuts ? order.map((l) => {
     const n = all.filter((z) => z.level === l).length;
-    return `<div><span><span class="swatch" style="background:${levelColor(l)}"></span>${LEVELS[l].label} <span class="muted">(${n})</span></span><span>${ranges[l]}/sqft</span></div>`;
-  }).join("") : '<div class="muted">No priced projects to compare yet.</div>';
+    return `<div><span><span class="swatch" style="background:${levelColor(l)}"></span>${levels[l].label} <span class="muted">(${n})</span></span><span>${ranges[l]}/sqft</span></div>`;
+  }).join("") : "";
   const out = pjs.filter((p) => p.leftOut);
   $("leftOut").textContent = out.length
-    ? `Dashed markers aren't used for zones: ${out.map((p) => `${p.name} (${p.units.length})`).join(", ")}.` : "";
+    ? `Dashed markers don't shape the map: ${out.map((p) => `${p.name} (${p.units.length})`).join(", ")}.` : "";
 
-  const body = $("zoneList"); body.innerHTML = "";
+  const polys = {};
   zones.forEach((z) => {
     const poly = L.polygon(z.polygon, { stroke: false, fillColor: levelColor(z.level), fillOpacity: 0.45 })
       .bindPopup(() => zoneSummary(z), { maxWidth: 400 });
@@ -211,11 +214,29 @@ function renderZones(fz) {
     zoneLayer.addLayer(L.polyline(z.edges, { color: "#fff", weight: 2, interactive: false }));
     zoneLayer.addLayer(L.marker(z.label, { interactive: false, keyboard: false, zIndexOffset: -200, icon: L.divIcon({ className: "", iconSize: [0, 0],
       html: `<span class="zlabel" style="border-color:${levelColor(z.level)}">${z.id}</span>` }) }));
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td><span class="chip" style="background:${levelColor(z.level)}">${z.id}</span>${LEVELS[z.level].label}
-      <div class="names">${z.projects.map((p) => p.name).join(", ")}</div></td><td>${z.units.length}</td><td>₹${fmt(z.psf)}</td>`;
-    tr.onclick = () => { map.fitBounds(poly.getBounds(), fitPadding()); poly.openPopup(); };
-    body.appendChild(tr);
+    (polys[z.id] ||= []).push(poly);
+  });
+
+  // Named clusters get one row each, counting every project in the cluster; price levels get one row per zone
+  const rows = named
+    ? order.filter((l) => !fz || l === fz).map((l) => ({ id: l, level: l, projects: pjs.filter((p) => p.level === l) }))
+    : zones.map((z) => ({ id: z.id, level: z.level, projects: z.projects }));
+  const body = $("zoneList"); body.innerHTML = "";
+  rows.filter((r) => r.projects.length).forEach((r) => {
+    const units = r.projects.flatMap((p) => p.units);
+    const others = pjs.filter((p) => p.level && !r.projects.includes(p)).flatMap((p) => p.units);
+    const s = priceStory(units, others), l = levels[r.level];
+    const row = document.createElement("button");
+    row.type = "button"; row.className = "cluster";
+    row.innerHTML = `<span class="chip" style="background:${levelColor(r.level)}">${r.id}</span><b>${l.label}</b>
+      ${l.desc ? `<p>${l.desc}</p>` : ""}
+      <p class="cost">Most homes: ${inr(s.mostLow)} to ${inr(s.mostHigh)}</p>
+      <p>All ${units.length} listings: ${inr(s.low)} to ${inr(s.high)}</p>
+      <p><span class="trend">${s.trend}</span>${s.trend === "Varying" ? `no clear pattern against the rest of ${curArea}` : `than the rest of ${curArea}`}.</p>
+      ${l.why ? `<p>${l.why}</p>` : ""}
+      <p class="names">${r.projects.map((p) => p.name).join(", ")}</p>`;
+    row.onclick = () => { const g = polys[r.id]; if (g) { map.fitBounds(L.featureGroup(g).getBounds(), fitPadding()); g[0].openPopup(); } };
+    body.appendChild(row);
   });
 }
 
@@ -233,9 +254,9 @@ function render() {
   });
   const su = shown.flatMap((p) => p.units);
   $("kTotal").textContent = su.length; $("kProj").textContent = shown.length;
-  $("kMed").textContent = inr(median(su.map((u) => u.price).filter(Boolean)));
-  const ps = su.map((u) => u.psf).filter(Boolean);
-  $("kPsf").textContent = ps.length ? "₹" + fmt(Math.round(ps.reduce((a, b) => a + b, 0) / ps.length)) : "–";
+  const costs = su.map((u) => u.price).filter(Boolean);
+  $("kLow").textContent = costs.length ? inr(Math.min(...costs)) : "–";
+  $("kHigh").textContent = costs.length ? inr(Math.max(...costs)) : "–";
   heat.setLatLngs(pts); $("tHeat").checked ? heat.addTo(map) : map.removeLayer(heat);
   if (!$("tMark").checked) return;
   const maxN = Math.max(...shown.map((p) => p.units.length), 1);
@@ -286,8 +307,8 @@ function tip(p) {
   const cs = Object.entries(pr.catScores).map(([k, v]) => `<div>${CATS[k].icon} ${CATS[k].label}
      <div class="bar"><span style="width:${v}%;background:${scoreColor(v)}"></span></div></div>`).join("");
   return `<div class="tip"><h3>${p.name}</h3>
-   <div><span class="badge">📍 ${p.area}</span><span class="badge">🗺️ ${p.zone ? `${LEVELS[p.level].label} zone ${p.zone.id}` : "Not used for zones"}</span><span class="badge">${pr.type}</span><span class="badge">${pr.zone}</span></div>
-   <div class="muted" style="margin-top:4px">${p.units.length} listing(s) · ${p.range} · Avg ₹${fmt(p.avgPsf)}/sqft · Livability
+   <div><span class="badge">📍 ${p.area}</span><span class="badge">🗺️ ${p.level ? `${p.level} · ${areaLevels()[p.level].label}` : "Not in a cluster"}</span><span class="badge">${pr.type}</span><span class="badge">${pr.zone}</span></div>
+   <div class="muted" style="margin-top:4px">${p.units.length} listing(s) · ${p.range} · Livability
      <b style="color:${scoreColor(pr.livability)}">${pr.livability ?? "-"}/100</b></div>
    <div class="tabs"><button class="on" onclick="tab(this,'a${uid}')">🏠 Units</button>
      <button onclick="tab(this,'b${uid}')">📍 Nearby</button><button onclick="tab(this,'c${uid}')">🧭 Locality</button></div>
