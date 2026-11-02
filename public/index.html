@@ -24,6 +24,8 @@ label{display:block;margin:6px 0 2px;color:#555}select,input[type=range]{width:1
 .cluster{display:block;width:100%;padding:9px 6px;border:0;border-top:1px solid #eee;background:none;color:inherit;font:inherit;font-size:12px;line-height:1.35;text-align:left;cursor:pointer}
 .cluster:hover{background:#f4f6fb}.cluster b{font-size:13px}.cluster p{margin:4px 0 0}
 .cluster .cost{font-weight:600}.cluster .names{color:#777;font-size:11px}
+.listings{font-size:12px;margin:0 6px 6px}.listings summary{cursor:pointer;color:#3949ab;font-weight:600}.listings div{max-height:220px;overflow:auto;margin-top:4px}.listings td,.listings th{font-size:11px}
+#clusterGuide:not(:empty){margin-top:8px;padding:9px 10px;background:#f4f6fb;border-radius:8px;font-size:12px;line-height:1.35}#clusterGuide b{display:block;margin-top:6px}#clusterGuide b:first-child{margin-top:0;font-size:13px}#clusterGuide p{margin:2px 0 0}
 .trend{display:inline-block;margin-right:4px;padding:0 6px;border-radius:9px;background:#eef0f4;color:#222;font-weight:700}
 .areas{display:flex;gap:4px;margin:0 0 10px;padding:3px;background:#eef0f4;border-radius:9px}
 .areas button{flex:1;min-width:0;border:0;border-radius:7px;background:none;padding:7px 4px;font:inherit;font-weight:600;color:#555;cursor:pointer}
@@ -34,7 +36,11 @@ label{display:block;margin:6px 0 2px;color:#555}select,input[type=range]{width:1
 .cnt.out{background:#fff!important;color:#222;border:2px dashed #222}
 .cnt{display:flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:700;
  font-size:11px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)}
-.poi{box-sizing:border-box;font-size:12px;line-height:18px;text-align:center;width:22px;height:22px;border-radius:50%;background:#fff;border:2px solid;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.catg{border-top:1px solid #eee}.catg summary{padding:6px 2px;cursor:pointer;font-weight:600;font-size:12px}
+.place{display:block;width:100%;padding:5px 6px;border:0;border-radius:4px;background:none;color:inherit;font:inherit;font-size:12px;line-height:1.3;text-align:left;cursor:pointer}
+.place:hover{background:#f4f6fb}.place.on{background:#e8eaf6;font-weight:600}.place small{display:block;color:#777;font-size:11px;font-weight:400}
+#placeInfo:not(:empty){margin-bottom:8px;padding:8px;background:#f4f6fb;border-radius:8px;font-size:12px}#placeInfo b{display:block;margin-bottom:3px}
+#placeInfo button{margin-top:6px;padding:3px 8px;border:1px solid #ccd;border-radius:5px;background:#fff;font:inherit;cursor:pointer}
 .leaflet-popup-content{margin:10px;width:auto!important}
 .tip{font-size:12px;width:520px;max-width:80vw}.tip h3{margin:0 0 2px;font-size:15px}
 .badge{display:inline-block;padding:2px 7px;border-radius:10px;background:#eef2ff;color:#3949ab;font-size:11px;margin:2px 3px 2px 0}
@@ -71,18 +77,18 @@ th{position:sticky;top:0;background:#fff}
 <label><input type="checkbox" id="tMark" checked> Projects</label></div>
 <div id="heatKey" hidden><div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div></div>
 <div id="zoneKey"><h2>Clusters</h2><div class="key" id="levelKey"></div>
-<div id="zoneList"></div>
+<div id="zoneList"></div><div id="clusterGuide"></div>
 <div class="muted" id="leftOut" style="font-size:11px;margin-top:6px"></div>
 <div class="muted" style="font-size:11px;margin-top:4px">These are asking prices. "Most homes" is the middle half of listings. Higher, Lower and Varying compare price per sqft with the rest of this area, not over time. Reasons are likely influences, not proven causes. Cluster edges are not official boundaries.</div></div>
-<h2>Infrastructure</h2><div id="catList"></div>
+<h2>Infrastructure</h2><div id="placeInfo"></div><div id="catList"></div>
 <label>Base map</label><select id="fBase"><option value="osm">Street</option><option value="sat">Satellite</option><option value="light">Light</option></select>
 </div>
 <script type="module">
 import { fetchAll } from "./js/db.js";
-import { levelsFor, priceStory, hav, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
-import { AREA_PLACES } from "./js/area-places.js";
+import { levelsFor, priceStory, CLUSTER_GUIDE, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
+import { SHEET_PLACES } from "./js/area-places.js";
 const $ = (id) => document.getElementById(id);
-let D, map, heat, projLayer, linkLayer, zoneLayer, poiLayers = {}, poiOn = Object.fromEntries(Object.keys(CATS).map((k) => [k, true])), bases, placesById = {}, pinned = [], curArea;
+let D, map, heat, projLayer, linkLayer, zoneLayer, selPlace = null, bases, placesById = {}, pinned = [], curArea;
 const areaProjects = () => D.projects.filter((p) => p.area === curArea);
 const areaLevels = () => levelsFor(areaProjects()[0]?.areaId);
 const levelColor = (l) => areaLevels()[l]?.color ?? "#9e9e9e";
@@ -108,7 +114,8 @@ async function start() {
   if (!D.properties.length) { $("overlay").innerHTML = `No properties in the database yet.<br><a href="admin.html">Upload a spreadsheet →</a>`; return; }
   $("overlay").remove();
 
-  placesById = Object.fromEntries(D.places.map((p) => [p.id, p]));
+  const named = Object.entries(SHEET_PLACES).map(([id, [name, category]]) => [id, { id, name, category }]);
+  placesById = Object.fromEntries([...named, ...D.places.map((p) => [p.id, p])]);
   pinned = D.places.filter((p) => p.lat != null && p.lng != null && CATS[p.category]);
   D.projects = buildProjects(D.properties, placesById);
 
@@ -151,29 +158,38 @@ function fit() {
   if (pts.length) map.fitBounds(pts, fitPadding());
 }
 
+// Places come from the area's distance columns. Choosing one shows every project's distance to it on the map.
 function buildPois() {
-  Object.values(poiLayers).forEach((l) => map.removeLayer(l));
-  $("catList").innerHTML = "";
+  selPlace = null;
+  $("catList").innerHTML = ""; $("placeInfo").innerHTML = "";
   const pjs = areaProjects();
+  const keys = [...new Set(pjs.flatMap((p) => Object.keys(p.dist)))];
   Object.entries(CATS).forEach(([k, c]) => {
-    const extra = (AREA_PLACES[pjs[0]?.areaId]?.[k] || []).map(([name, lat, lng]) => ({ name, lat, lng, extra: true }));
-    const list = [...pinned.filter((p) => p.category === k && pjs.some((pj) => pj.dist[p.id] != null)), ...extra];
-    poiLayers[k] = L.layerGroup();
-    list.forEach((p) => {
-      const icon = L.divIcon({ className: "", iconSize: [22, 22], html: `<div class="poi" style="border-color:${c.color}">${c.icon}</div>` });
-      const near = pjs.map((pj) => ({ n: pj.name, d: p.extra ? +hav(pj.lat, pj.lng, p.lat, p.lng).toFixed(1) : pj.dist[p.id] })).filter((x) => x.d != null).sort((a, b) => a.d - b.d).slice(0, 6);
-      const m = L.marker([p.lat, p.lng], { icon, zIndexOffset: 500 }).bindPopup(`<div style="font-size:12px"><b>${c.icon} ${p.name}</b><br>
-        <span class="muted">${c.label}</span>${near.length ? `<table style="margin-top:6px"><tr><th>Closest projects</th><th>km</th></tr>
-        ${near.map((x) => `<tr><td>${x.n}</td><td>${x.d}</td></tr>`).join("")}</table>` : ""}</div>`, { autoPan: false });
-      m.on("mouseover", () => m.openPopup());
-      poiLayers[k].addLayer(m);
+    const items = keys.filter((key) => placeMeta(key, placesById).cat === k).map((key) => ({
+      key, name: placeMeta(key, placesById).name,
+      dists: pjs.filter((p) => p.dist[key] != null).map((p) => ({ n: p.name, d: p.dist[key] })).sort((x, y) => x.d - y.d),
+    })).sort((x, y) => x.dists[0].d - y.dists[0].d);
+    if (!items.length) return;
+    const group = document.createElement("details"); group.className = "catg";
+    group.innerHTML = `<summary>${c.icon} ${c.label} <span class="muted">(${items.length})</span></summary>`;
+    items.forEach((it) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "place"; b.dataset.key = it.key;
+      b.innerHTML = `${it.name}<small>Closest: ${it.dists[0].n}, ${it.dists[0].d} km</small>`;
+      b.onclick = () => pickPlace(it);
+      group.appendChild(b);
     });
-    if (poiOn[k]) poiLayers[k].addTo(map);
-    const el = document.createElement("label"); el.className = "cat";
-    el.innerHTML = `<input type="checkbox" ${poiOn[k] ? "checked" : ""}>${c.icon} ${c.label} <span class="muted">(${list.length})</span>`;
-    el.querySelector("input").onchange = (e) => { poiOn[k] = e.target.checked; e.target.checked ? poiLayers[k].addTo(map) : map.removeLayer(poiLayers[k]); };
-    $("catList").appendChild(el);
+    $("catList").appendChild(group);
   });
+}
+
+function pickPlace(it) {
+  selPlace = selPlace === it.key ? null : it.key;
+  document.querySelectorAll(".place").forEach((b) => b.classList.toggle("on", b.dataset.key === selPlace));
+  $("placeInfo").innerHTML = selPlace ? `<b>Distance to ${it.name}</b>Markers now show km to this place, with projects within 2 km in green.
+    <div style="margin-top:4px">${it.dists.slice(0, 5).map((x) => `${x.n}: ${x.d} km`).join("<br>")}</div><button type="button" id="clearPlace">Clear</button>` : "";
+  if (selPlace) $("clearPlace").onclick = () => pickPlace(it);
+  render();
 }
 
 function zoneSummary(z) {
@@ -184,6 +200,17 @@ function zoneSummary(z) {
   return `<div style="font-size:12px"><b style="font-size:14px;color:${levelColor(z.level)}">${z.id} · ${areaLevels()[z.level].label}</b><br>
     ${z.units.length} listing(s) · ${z.projects.length} project(s) on this part of the map<br>Cost: <b>${range}</b>
     <div style="max-height:180px;overflow:auto;margin-top:6px"><table><tr><th>Project</th><th>Cost</th><th>Listings</th></tr>${names}</table></div></div>`;
+}
+
+// A short answer to "where are the budget and the premium homes?", placed after the cluster list
+function renderGuide(pjs) {
+  const g = CLUSTER_GUIDE[pjs[0]?.areaId], levels = areaLevels();
+  if (!g) { $("clusterGuide").innerHTML = ""; return; }
+  const lines = (ids) => ids.map((id) => {
+    const s = priceStory(pjs.filter((p) => p.level === id).flatMap((p) => p.units), []);
+    return `<p>${id} · ${levels[id].label}: most homes ${inr(s.mostLow)} to ${inr(s.mostHigh)}</p>`;
+  }).join("");
+  $("clusterGuide").innerHTML = `<b>Where to look in ${curArea}</b><b>Budget-friendly homes</b>${lines(g.budget)}<b>High-luxury and premium homes</b>${lines(g.premium)}<p style="margin-top:6px">${g.extra}</p>`;
 }
 
 function renderZones(fz) {
@@ -223,6 +250,7 @@ function renderZones(fz) {
   const rows = named
     ? order.filter((l) => !fz || l === fz).map((l) => ({ id: l, level: l, projects: pjs.filter((p) => p.level === l) }))
     : zones.map((z) => ({ id: z.id, level: z.level, projects: z.projects }));
+  renderGuide(pjs);
   const body = $("zoneList"); body.innerHTML = "";
   rows.filter((r) => r.projects.length).forEach((r) => {
     const units = r.projects.flatMap((p) => p.units);
@@ -239,6 +267,12 @@ function renderZones(fz) {
       <p class="names">${r.projects.map((p) => p.name).join(", ")}</p>`;
     row.onclick = () => { const g = polys[r.id]; if (g) { map.fitBounds(L.featureGroup(g).getBounds(), fitPadding()); g[0].openPopup(); } };
     body.appendChild(row);
+    const list = document.createElement("details");
+    list.className = "listings";
+    list.innerHTML = `<summary>See all ${units.length} listings</summary><div><table><tr><th>Project</th><th>Home</th><th>Size</th><th>Price</th></tr>
+      ${[...r.projects.flatMap((p) => p.units.map((u) => ({ ...u, name: p.name })))].sort((x, y) => (x.price || 0) - (y.price || 0)).map((u) =>
+        `<tr><td>${u.name}</td><td>${u.bhk ? u.bhk + " BHK " : ""}${u.type || ""}</td><td>${u.areaSqft ? fmt(u.areaSqft) + " sqft" : ""}</td><td><b>${u.askingPrice || inr(u.price)}</b></td></tr>`).join("")}</table></div>`;
+    body.appendChild(list);
   });
 }
 
@@ -263,9 +297,9 @@ function render() {
   if (!$("tMark").checked) return;
   const maxN = Math.max(...shown.map((p) => p.units.length), 1);
   shown.forEach((p) => {
-    const n = p.units.length, d = Math.round(16 + Math.sqrt(n) * 2.2);
+    const n = p.units.length, km = selPlace ? p.dist[selPlace] : null, d = km != null ? 30 : Math.round(16 + Math.sqrt(n) * 2.2);
     const icon = L.divIcon({ className: "", iconSize: [d, d],
-      html: `<div class="cnt${p.leftOut ? " out" : ""}" style="width:${d}px;height:${d}px;background:${$("tZone").checked ? "#1d2522" : heatColor(n / maxN)}">${n}</div>` });
+      html: `<div class="cnt${p.leftOut ? " out" : ""}" style="width:${d}px;height:${d}px;background:${km != null ? (km <= 2 ? "#1f8a50" : "#1d2522") : $("tZone").checked ? "#1d2522" : heatColor(n / maxN)}">${km ?? n}</div>` });
     const m = L.marker([p.lat, p.lng], { icon }).bindPopup(() => tip(p), { maxWidth: 600, autoPanPaddingTopLeft: [20, 20], autoPanPaddingBottomRight: [330, 20] });
     m.on("mouseover", () => m.openPopup());
     m.on("popupopen", () => drawLinks(p)); m.on("popupclose", () => linkLayer.clearLayers());

@@ -27,6 +27,8 @@ function kmFromOrr(lat, lng) {
   return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
 }
 
+const kmBetween = (a, b, c, d) => Math.hypot((b - d) * 111.32 * Math.cos((a * Math.PI) / 180), (a - c) * 110.57);
+
 // Named clusters per area. An area listed here uses these instead of the three price levels.
 const AREA_CLUSTERS = {
   kokapet: {
@@ -48,32 +50,34 @@ const AREA_CLUSTERS = {
   },
   manchirevula: {
     levels: {
-      C1: { label: "Metro Station / Highway Belt", color: "#2a78d6",
-        desc: "High-density commercial and transit-oriented apartments. Here, these are within 600 m of the Outer Ring Road.",
-        why: "Road access doesn't show up as a higher price here, but this cluster has very few listings." },
-      C2: { label: "Deepthisri Nagar / Madhavaram Colony", color: "#eb6834",
-        desc: "Premium, highly-demanded, calm residential layouts. Here, these are villa communities.",
+      MC1: { label: "ORR Exit 18A", color: "#2a78d6",
+        desc: "Apartments within 600 m of the Outer Ring Road, on the Narsingi exit side.",
+        why: "Road access helps, but many listings here are unfinished Rajapushpa Infina towers, and some are well below the builder's price." },
+      MC2: { label: "Green Valley", color: "#eb6834",
+        desc: "Apartments in the north-west, towards Golden Mile Road. Green Valley isn't marked on public maps, so this boundary is a best fit.",
+        why: "Being closer to Golden Mile Road and taller towers may be pushing prices up." },
+      MC3: { label: "Dews Ville / Villa", color: "#1baf7a",
+        desc: "All villa communities, plus homes within 1 km of Dews Ville.",
         why: "Large villas in gated communities are the main reason prices are high." },
-      C3: { label: "Madeenaguda / Chanda Nagar Border", color: "#1baf7a",
-        desc: "Blended residential zone with rapid access to shopping districts.",
-        why: "Being close to shops and Golden Mile Road may be pushing prices up." },
-      C4: { label: "Bachupally / Mallampet Road", color: "#eda100",
-        desc: "High-growth corridor featuring massive under-construction high-rises.",
-        why: "Homes are large, so they cost a lot in total, but unfinished towers may be cheaper for their size. Some listings are also well below the builder's price." },
-      C5: { label: "Ameenpur / Lake Fringe", color: "#e87ba4",
-        desc: "Budget-friendly value pocket with newer low-to-mid rise societies.",
-        why: "Lower-rise buildings and smaller homes may be keeping prices down." },
+      MC4: { label: "Old Village", color: "#eda100",
+        desc: "Apartments around the old Manchirevula village in the south, plus unnamed apartments with only a general location.",
+        why: "Smaller, lower-rise buildings may be keeping prices down." },
     },
     assign: (p) => {
-      if (p.villa) return "C2";
-      if (p.maxFloors >= 30 && !p.ready) return "C4";
-      if (/unnamed/i.test(p.name)) return "C5";
-      if (kmFromOrr(p.lat, p.lng) <= 0.6) return "C1";
-      return p.medianPsf <= 7000 ? "C5" : "C3";
+      if (p.villa || kmBetween(p.lat, p.lng, 17.3749342, 78.3676816) <= 1) return "MC3";
+      if (p.leftOut) return "MC4";
+      if (kmFromOrr(p.lat, p.lng) <= 0.6) return "MC1";
+      return p.lat < 17.378 ? "MC4" : "MC2";
     },
   },
 };
 export const levelsFor = (areaId) => AREA_CLUSTERS[areaId]?.levels ?? LEVELS;
+
+// Which clusters to point people to, cheapest or priciest first
+export const CLUSTER_GUIDE = {
+  kokapet: { budget: ["2", "4"], premium: ["3", "1"], extra: "Prices overlap, so each cluster also has some cheaper and some pricier homes." },
+  manchirevula: { budget: ["MC4", "MC1"], premium: ["MC3", "MC2"], extra: "Prices overlap, so each cluster also has some cheaper and some pricier homes. MC1 homes can cost a lot in total because many are large, but they are lower priced for their size." },
+};
 
 // What homes cost in a group of listings, and how its prices compare with the rest of the area.
 // The comparison uses price per sqft so bigger homes don't look pricier just for being bigger:
@@ -191,7 +195,7 @@ export function placeMeta(key, placesById) {
 export const inr = (v) => (!v ? "N/A" : v >= 1e7 ? `₹${(v / 1e7).toFixed(2)} Cr` : `₹${(v / 1e5).toFixed(1)} L`);
 export const fmt = (v) => (v == null ? "-" : Number(v).toLocaleString("en-IN"));
 
-export function hav(a, b, c, d) {
+function hav(a, b, c, d) {
   const p = Math.PI / 180, x = Math.sin((c - a) * p / 2) ** 2 + Math.cos(a * p) * Math.cos(c * p) * Math.sin((d - b) * p / 2) ** 2;
   return 2 * 6371 * Math.asin(Math.sqrt(x));
 }
