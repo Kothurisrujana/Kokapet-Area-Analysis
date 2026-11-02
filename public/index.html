@@ -71,9 +71,7 @@ th{position:sticky;top:0;background:#fff}
 <label><input type="checkbox" id="tMark" checked> Projects</label></div>
 <div id="heatKey" hidden><div class="legend"></div><div class="lg"><span>Fewer buildings</span><span>More buildings</span></div></div>
 <div id="zoneKey"><h2>Clusters</h2><div class="key" id="levelKey"></div>
-<div id="zoneList"></div>
-<div class="muted" id="leftOut" style="font-size:11px;margin-top:6px"></div>
-<div class="muted" style="font-size:11px;margin-top:4px">These are asking prices. "Most homes" is the middle half of listings. Higher, Lower and Varying compare price per sqft with the rest of this area, not over time. Reasons are likely influences, not proven causes. Cluster edges are not official boundaries.</div></div>
+<div id="zoneList"></div></div>
 <h2>Infrastructure</h2><div id="catList"></div>
 <label>Base map</label><select id="fBase"><option value="osm">Street</option><option value="sat">Satellite</option><option value="light">Light</option></select>
 </div>
@@ -204,10 +202,6 @@ function renderZones(fz) {
     const n = all.filter((z) => z.level === l).length;
     return `<div><span><span class="swatch" style="background:${levelColor(l)}"></span>${levels[l].label} <span class="muted">(${n})</span></span><span>${ranges[l]}/sqft</span></div>`;
   }).join("") : "";
-  const out = pjs.filter((p) => p.leftOut);
-  $("leftOut").textContent = out.length
-    ? `Dashed markers don't shape the map: ${out.map((p) => `${p.name} (${p.units.length})`).join(", ")}.` : "";
-
   const polys = {};
   zones.forEach((z) => {
     const poly = L.polygon(z.polygon, { stroke: false, fillColor: levelColor(z.level), fillOpacity: 0.45 })
