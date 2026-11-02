@@ -1,7 +1,7 @@
 # Hyderabad Property Map (Supabase)
 
 - **/admin.html** – anyone can upload area spreadsheets (CSV/XLSX), which are saved to Supabase (Postgres). There is no sign-in, so anyone with the link can also change or delete data.
-- **/** (the map) – always loads from Supabase. You never re-upload.
+- **/** (the map) – always loads from Supabase. You never re-upload. Each area has its own tab, divided into Low-price, Medium-budget and High-price zones compared within that area.
 
 Re-uploading merges: matching rows are **updated**, new rows are **added**, and exact duplicates are **skipped**.
 

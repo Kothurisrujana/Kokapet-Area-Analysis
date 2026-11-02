@@ -12,11 +12,11 @@ export const CATS = {
   transport: { label: "Transport",            icon: "🚇", color: "#546e7a", w: 0.8 },
 };
 
-// Budget classes for the area clusters, cheapest first
-export const BUDGETS = {
-  low:     { label: "Low-budget",  color: "#2e9e5b" },
-  high:    { label: "High-budget", color: "#f59e0b" },
-  premium: { label: "Premium",     color: "#8e24aa" },
+// Price levels for the area zones, cheapest first
+export const LEVELS = {
+  low:    { label: "Low-price",     color: "#1f8a50" },
+  medium: { label: "Medium-budget", color: "#c98a00" },
+  high:   { label: "High-price",    color: "#c5302b" },
 };
 
 // Columns that describe the property itself (everything else numeric = a distance in km)
@@ -130,33 +130,6 @@ const median = (a) => {
   const s = [...a].sort((x, y) => x - y), n = s.length;
   return !n ? null : n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2;
 };
-const dist2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
-const stdev = (a) => {
-  const m = a.reduce((x, y) => x + y, 0) / a.length;
-  return Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length) || 1;
-};
-
-// k-means on location + price, started from far-apart points so the result never changes between page loads
-function kmeans(pts, k) {
-  const avg = (list, f) => list.reduce((a, p) => a + p[f], 0) / list.length;
-  const mean = (list) => ({ x: avg(list, "x"), y: avg(list, "y"), z: avg(list, "z") });
-  const mid = mean(pts);
-  const centers = [pts.reduce((a, p) => (dist2(p, mid) > dist2(a, mid) ? p : a))];
-  while (centers.length < k) {
-    const away = (p) => Math.min(...centers.map((c) => dist2(p, c)));
-    centers.push(pts.reduce((a, p) => (away(p) > away(a) ? p : a)));
-  }
-  let groups;
-  for (let it = 0; it < 50; it++) {
-    groups = centers.map(() => []);
-    pts.forEach((p) => {
-      const near = centers.reduce((b, c, i) => (dist2(p, c) < dist2(p, centers[b]) ? i : b), 0);
-      groups[near].push(p);
-    });
-    groups.forEach((g, i) => { if (g.length) centers[i] = mean(g); });
-  }
-  return groups.map((g, i) => ({ center: centers[i], pts: g })).filter((g) => g.pts.length);
-}
 
 function convexHull(points) {
   const s = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
@@ -173,49 +146,101 @@ function convexHull(points) {
   return [...half(s), ...half(s.reverse())];
 }
 
-// How much price counts against location when grouping projects (0 = location only)
-const PRICE_WEIGHT = 1.5;
+// Keep the part of a polygon closer to site a than to site b. Each vertex's `by` remembers which
+// neighbouring site (index j) made the edge that starts there, so neighbours can be found afterwards.
+function clipCloser(poly, a, b, j) {
+  const d2 = (p, c) => (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+  const side = (p) => d2(p, b) - d2(p, a), out = [];
+  poly.forEach((p, i) => {
+    const q = poly[(i + 1) % poly.length], sp = side(p), sq = side(q);
+    if (sp >= 0) out.push(p);
+    if (sp >= 0 !== sq >= 0) {
+      const t = sp / (sp - sq);
+      out.push({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y), by: sp >= 0 ? j : p.by });
+    }
+  });
+  return out;
+}
 
-// Group one area's projects into zones of nearby, similarly priced projects, then give the
-// cheapest third of zones, the middle third and the top third a budget label.
-// Sets pj.budget and pj.zone on every project.
+// Listings that would mislead the zones. They stay on the map but don't shape or label any zone.
+const NOT_IN_ZONES = {
+  kokapet: [{ project: "sriram river view", why: "Its one listing shows ₹2,499/sqft, far below this project's other asking prices, so it looks like a data error." }],
+  manchirevula: [{ at: [17.3736, 78.3489], why: "These listings have no project name and only a general location for the area." }],
+};
+const leftOutReason = (pj) => (NOT_IN_ZONES[pj.areaId] || []).find((r) => (r.project ? r.project === pj.name.toLowerCase()
+  : r.at[0] === +pj.lat.toFixed(4) && r.at[1] === +pj.lng.toFixed(4)))?.why ?? null;
+
+// Divide one area into price zones. The cheapest third of project locations are low, the middle third
+// medium and the top third high. Each location takes the land nearest to it, and touching land at the
+// same level joins into one zone, so zones never overlap and a project's level always matches its zone.
 function buildZones(projects) {
-  const cosLat = Math.cos((projects[0].lat * Math.PI) / 180);
-  const known = projects.map((pj) => pj.avgPsf).filter(Boolean).sort((a, b) => a - b);
-  // a few extreme prices are capped here so they can't take a whole zone for themselves
-  const cap = (v) => Math.min(known[Math.floor(0.9 * (known.length - 1))], Math.max(known[Math.floor(0.1 * (known.length - 1))], v));
-  const logPsf = (pj) => (known.length ? Math.log(cap(pj.avgPsf ?? median(known))) : 0);
-  const xs = projects.map((pj) => pj.lng * cosLat), ys = projects.map((pj) => pj.lat);
-  const geo = Math.hypot(stdev(xs), stdev(ys)), priceSd = known.length ? stdev(projects.map(logPsf)) : 1;
-  const pts = projects.map((pj, i) => ({ x: xs[i] / geo, y: ys[i] / geo, z: (logPsf(pj) / priceSd) * PRICE_WEIGHT, pj }));
-  // a multiple of 3 zones, so each budget label gets the same number of them
-  const k = Math.min(pts.length, 3 * Math.max(1, Math.min(3, Math.round(Math.sqrt(pts.length) / 3))));
-  const zones = kmeans(pts, k).map((g) => {
-    const units = g.pts.flatMap((p) => p.pj.units);
-    const psf = median(units.map((u) => u.psf).filter(Boolean));
-    return { projects: g.pts.map((p) => p.pj), units, psf: psf && Math.round(psf), budget: null };
+  const areaName = projects[0].area;
+  const kmX = 111.32 * Math.cos((projects[0].lat * Math.PI) / 180), kmY = 110.57;
+  const toLatLng = (p) => [+(p.y / kmY).toFixed(6), +(p.x / kmX).toFixed(6)];
+  projects.forEach((pj) => {
+    pj.medianPsf = median(pj.units.map((u) => u.psf).filter(Boolean));
+    pj.leftOut = leftOutReason(pj); pj.level = null; pj.zone = null;
+  });
+  const byPlace = new Map();
+  projects.filter((pj) => !pj.leftOut && pj.medianPsf).forEach((pj) => {
+    const k = `${pj.lat.toFixed(4)},${pj.lng.toFixed(4)}`;
+    if (!byPlace.has(k)) byPlace.set(k, []);
+    byPlace.get(k).push(pj);
+  });
+  const sites = [...byPlace.values()].map((pjs) => ({
+    pjs,
+    x: (pjs.reduce((a, p) => a + p.lng, 0) / pjs.length) * kmX,
+    y: (pjs.reduce((a, p) => a + p.lat, 0) / pjs.length) * kmY,
+    psf: median(pjs.flatMap((p) => p.units.map((u) => u.psf).filter(Boolean))),
+  }));
+  if (!sites.length) return;
+
+  const known = sites.map((s) => s.psf).sort((a, b) => a - b);
+  const cuts = [known[Math.floor(known.length / 3)], known[Math.floor((2 * known.length) / 3)]];
+  sites.forEach((s) => (s.level = s.psf < cuts[0] ? "low" : s.psf < cuts[1] ? "medium" : "high"));
+
+  // The area outline wraps every project location with about 350 m of margin
+  const margin = 0.35;
+  const outline = convexHull(sites.flatMap((s) => [...Array(24).keys()].map((a) => ({
+    x: s.x + margin * Math.cos((a * Math.PI) / 12), y: s.y + margin * Math.sin((a * Math.PI) / 12), by: null }))));
+  sites.forEach((s, i) => {
+    s.cell = sites.reduce((poly, o, j) => (j === i ? poly : clipCloser(poly, s, o, j)), outline);
+    s.touches = new Set(s.cell.map((v) => v.by).filter((j) => j != null));
   });
 
-  const priced = zones.filter((z) => z.psf).sort((a, b) => a.psf - b.psf);
-  const keys = Object.keys(BUDGETS), n = priced.length;
-  priced.forEach((z, i) => (z.budget = keys[n >= 3 ? Math.floor((i * 3) / n) : 3 - n + i]));
-  // A project's own label uses the price gaps between the three groups of zones
-  const firstOf = (b) => priced.findIndex((z) => z.budget === b);
-  const cut = (b) => { const i = firstOf(b); return i > 0 ? (priced[i - 1].psf + priced[i].psf) / 2 : 0; };
-  const cutHigh = cut("high"), cutPremium = cut("premium");
+  // Touching locations at the same level become one zone
+  const zoneOf = new Array(sites.length).fill(-1), groups = [];
+  sites.forEach((s, start) => {
+    if (zoneOf[start] >= 0) return;
+    const members = [], todo = [start];
+    zoneOf[start] = groups.length;
+    while (todo.length) {
+      const i = todo.pop();
+      members.push(i);
+      sites.forEach((o, j) => {
+        if (zoneOf[j] < 0 && o.level === s.level && (sites[i].touches.has(j) || o.touches.has(i))) { zoneOf[j] = groups.length; todo.push(j); }
+      });
+    }
+    groups.push(members);
+  });
 
-  // Each zone's outline wraps its projects with roughly 150 m of margin
-  const m = 0.00135;
-  const counts = {};
-  zones.sort((a, b) => (a.psf ?? 0) - (b.psf ?? 0)).forEach((z) => {
-    z.polygon = convexHull(z.projects.flatMap((pj) => [...Array(12).keys()].map((a) => ({
-      x: pj.lng * cosLat + m * Math.cos((a * Math.PI) / 6), y: pj.lat + m * Math.sin((a * Math.PI) / 6) })))).map((p) => [p.y, p.x / cosLat]);
-    const label = z.budget ? BUDGETS[z.budget].label : "Unpriced";
-    counts[label] = (counts[label] || 0) + 1;
-    z.name = `${label} ${counts[label]}`;
-    z.projects.forEach((pj) => {
-      pj.zone = z;
-      pj.budget = !pj.avgPsf ? null : n < 3 ? z.budget : pj.avgPsf < cutHigh ? "low" : pj.avgPsf < cutPremium ? "high" : "premium";
+  const area = (c) => Math.abs(c.reduce((a, p, i) => { const q = c[(i + 1) % c.length]; return a + p.x * q.y - q.x * p.y; }, 0)) / 2;
+  const zones = groups.map((members, g) => {
+    const list = members.map((i) => sites[i]);
+    const pjs = list.flatMap((s) => s.pjs), units = pjs.flatMap((p) => p.units);
+    const edges = [];
+    members.forEach((i) => sites[i].cell.forEach((v, n, c) => {
+      if (v.by == null || zoneOf[v.by] !== g) edges.push([toLatLng(v), toLatLng(c[(n + 1) % c.length])]);
+    }));
+    const big = list.reduce((a, s) => (area(s.cell) > area(a.cell) ? s : a)).cell;
+    const mid = { x: big.reduce((a, p) => a + p.x, 0) / big.length, y: big.reduce((a, p) => a + p.y, 0) / big.length };
+    return { level: list[0].level, area: areaName, cuts, projects: pjs, units, edges, label: toLatLng(mid),
+      polygon: list.map((s) => s.cell.map(toLatLng)), psf: Math.round(median(units.map((u) => u.psf).filter(Boolean))) };
+  });
+  Object.keys(LEVELS).forEach((level) => {
+    zones.filter((z) => z.level === level).sort((a, b) => a.psf - b.psf).forEach((z, i) => {
+      z.id = `${level[0].toUpperCase()}${i + 1}`;
+      z.projects.forEach((pj) => { pj.zone = z; pj.level = level; });
     });
   });
 }
@@ -224,8 +249,9 @@ function buildZones(projects) {
 export function buildProjects(properties, placesById) {
   const groups = new Map();
   for (const p of properties) {
-    // one project = same area + same name (coordinates are averaged)
-    const k = `${p.areaId}|${p.project.toLowerCase()}`;
+    // one project = same area + same name (coordinates are averaged); unnamed listings stay at their own spot
+    const spot = /unnamed/i.test(p.project) ? `|${p.lat.toFixed(4)},${p.lng.toFixed(4)}` : "";
+    const k = `${p.areaId}|${p.project.toLowerCase()}${spot}`;
     if (!groups.has(k)) groups.set(k, { name: p.project, area: p.area, areaId: p.areaId, units: [] });
     groups.get(k).units.push(p);
   }
@@ -254,7 +280,7 @@ export function buildProjects(properties, placesById) {
       pj.within[m.cat] = (pj.within[m.cat] || 0) + (d <= 2 ? 1 : 0);
     }
   }
-  // zones are built per area so "Premium" means premium for that locality
+  // zones are built per area so "High-price" means high for that locality
   const byArea = {};
   projects.forEach((p) => (byArea[p.areaId] ||= []).push(p));
   Object.values(byArea).forEach(buildZones);
@@ -273,7 +299,7 @@ export function buildProjects(properties, placesById) {
       sum += scores[cat] * c.w; wsum += c.w;
     }
     const livability = wsum ? Math.round((100 * sum) / wsum) : null;
-    const tier = pj.budget ? BUDGETS[pj.budget].label : "Unpriced";
+    const tier = pj.level ? LEVELS[pj.level].label : "Unclassified";
     const villa = pj.units.filter((u) => /villa/i.test(u.type)).length / pj.units.length;
     const maxFloors = Math.max(0, ...pj.units.map((u) => u.floors || 0));
     const form = villa >= 0.5 ? "Villa community" : maxFloors >= 20 ? "High-rise gated community" : "Mid-rise residential";
