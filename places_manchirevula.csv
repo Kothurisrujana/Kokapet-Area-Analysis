@@ -1,0 +1,28 @@
+column,name,category,lat,lng,source
+amvi hospital,AMVI Hospital,hospital,17.3988443,78.3652937,OpenStreetMap
+narsingi health centre,Urban Primary Health Centre Narsingi,hospital,17.3871158,78.3549026,OpenStreetMap
+sankaraya eye hospital,Sankaraya Eye Hospital,hospital,17.4016532,78.3499413,OpenStreetMap
+rush clinic,Rush Clinic,hospital,17.3952113,78.3729247,OpenStreetMap
+shadan hospital,Shadan Hospital,hospital,17.3520793,78.3737828,OpenStreetMap
+rockwell international school,Rockwell International School,school,17.3863127,78.3347650,OpenStreetMap
+rishi public school,Rishi Public School,school,17.3695396,78.3708609,OpenStreetMap
+pallavi international school,Pallavi International School,school,17.3540848,78.3289066,OpenStreetMap
+shri ram universal school,The Shri Ram Universal School,school,17.4174310,78.3497771,OpenStreetMap
+mgit college,Mahatma Gandhi Institute of Technology,college,17.3907234,78.3223899,OpenStreetMap
+holy mary college,Holy Mary College,college,17.3835015,78.3670861,OpenStreetMap
+vasavi college of engineering,Vasavi College of Engineering,college,17.3806215,78.3830127,OpenStreetMap
+shadan college of engineering,Shadan College of Engineering,college,17.3535725,78.3751717,OpenStreetMap
+ratnadeep golden mile,Ratnadeep Golden Mile Road,shopping,17.3902148,78.3416796,OpenStreetMap
+ratnadeep neknampur,Ratnadeep Neknampur Road,shopping,17.3964837,78.3697574,OpenStreetMap
+pavitra supermart,Pavitra Supermart,shopping,17.3947749,78.3691253,OpenStreetMap
+timber lake,Timber Lake,park,17.3712528,78.3534346,OpenStreetMap
+swami vivekananda park,Swami Vivekananda Park,park,17.3921645,78.3722080,OpenStreetMap
+golden mile park,Golden Mile Park,park,17.4015457,78.3361292,OpenStreetMap
+bairagiguda lake,Bairagiguda Lake,park,17.3646843,78.3747420,OpenStreetMap
+nihar gym,Nihar Gym,gym,17.4013751,78.3837530,OpenStreetMap
+venu gopala swamy temple,Venu Gopala Swamy Temple,worship,17.3707256,78.3476684,OpenStreetMap
+shivalayam temple,Shivalayam Temple,worship,17.3961895,78.3755090,OpenStreetMap
+saviours lutheran church,Saviour's Lutheran Church,worship,17.3949990,78.3770574,OpenStreetMap
+asadullah shah dargah masjid,Dargah Hazrat Syed Asadullah Shah Qadri,worship,17.3865340,78.3725207,OpenStreetMap
+narsingi bus stop,Narsingi Bus Stop,transport,17.3854116,78.3545048,OpenStreetMap
+kokapet junction bus stop,Kokapet Junction Bus Stop,transport,17.3955920,78.3355094,OpenStreetMap
