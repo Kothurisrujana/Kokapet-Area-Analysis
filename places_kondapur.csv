@@ -1,0 +1,35 @@
+column,name,category,lat,lng,source
+kims hospital kondapur,KIMS Hospital,hospital,17.466147,78.367744,OpenStreetMap
+government area hospital kondapur,Government Area Hospital,hospital,17.463134,78.353012,OpenStreetMap
+health valley hospital,Health Valley Hospital,hospital,17.464418,78.368245,OpenStreetMap
+rainbow children hospital,Rainbow Children Hospital,hospital,17.455462,78.37201,OpenStreetMap
+medicover hospital,Medicover Hospital,hospital,17.455214,78.37756,OpenStreetMap
+chirec public school,Chirec Public School,school,17.462449,78.351733,OpenStreetMap
+arbor school,Arbor School,school,17.468365,78.349703,OpenStreetMap
+jain heritage school,Jain Heritage School,school,17.464394,78.344381,OpenStreetMap
+maharishi vidya mandir school,Maharishi Vidya Mandir School,school,17.469648,78.3699,OpenStreetMap
+meridian school,Meridian School,school,17.454024,78.384137,OpenStreetMap
+klh university,KL University Hyderabad campus,college,17.461265,78.36924,OpenStreetMap
+university of hyderabad,University of Hyderabad,college,17.452267,78.339047,OpenStreetMap
+iiit hyderabad,IIIT Hyderabad,college,17.445189,78.348348,OpenStreetMap
+nift college,NIFT Hyderabad,college,17.449518,78.38336,OpenStreetMap
+pranava business park,Pranava Business Park,it,17.461274,78.367768,OpenStreetMap
+trendset jayabheri connect,Trendset Jayabheri Connect,it,17.457734,78.367124,OpenStreetMap
+jayabheri silicon towers,Jayabheri Silicon Towers,it,17.458622,78.370661,OpenStreetMap
+dlf cybercity,DLF Cyber City,it,17.447091,78.355747,OpenStreetMap
+sarat city capital mall,Sarat City Capital Mall,shopping,17.457714,78.363873,OpenStreetMap
+ratnadeep supermarket kondapur,"Ratnadeep Supermarket, Kondapur",shopping,17.463981,78.367427,OpenStreetMap
+vijetha supermarket,Vijetha Supermarket,shopping,17.464753,78.345137,OpenStreetMap
+star bazaar,Star Bazaar,shopping,17.468831,78.366784,OpenStreetMap
+spar kondapur,Spar Hypermarket,shopping,17.45227,78.362607,OpenStreetMap
+botanical garden kondapur,Botanical Garden,park,17.45569,78.36221,OpenStreetMap
+gautami enclave park,Gautami Enclave Park,park,17.465506,78.350129,OpenStreetMap
+jagruthi colony park,Jagruthi Colony Park,park,17.466452,78.364769,OpenStreetMap
+austin fitness gym,Austin Fitness,gym,17.448527,78.359151,OpenStreetMap
+e-fitness gym,E-Fitness,gym,17.469885,78.352256,OpenStreetMap
+sita ramanjaneya temple,Shri Sita Ramanjaneya Temple,worship,17.457321,78.369688,OpenStreetMap
+shiva temple masjid banda,"Shiva Temple, Masjid Banda",worship,17.46615,78.343331,OpenStreetMap
+bible believers church,Bible Believers Church,worship,17.46554,78.363034,OpenStreetMap
+kondapur bus depot,Kondapur Bus Depot,transport,17.465377,78.364018,OpenStreetMap
+hitec city metro station,HITEC City Metro Station,transport,17.449005,78.383137,OpenStreetMap
+miyapur metro station,Miyapur Metro Station,transport,17.49653,78.37302,OpenStreetMap

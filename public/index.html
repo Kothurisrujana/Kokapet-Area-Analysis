@@ -85,7 +85,7 @@ th{position:sticky;top:0;background:#fff}
 </div>
 <script type="module">
 import { fetchAll } from "./js/db.js";
-import { levelsFor, priceStory, CLUSTER_GUIDE, CATS, buildProjects, placeMeta, inr, fmt } from "./js/common.js";
+import { levelsFor, priceStory, CLUSTER_GUIDE, CATS, buildProjects, placeMeta, routeLink, inr, fmt } from "./js/common.js";
 import { SHEET_PLACES } from "./js/area-places.js";
 const $ = (id) => document.getElementById(id);
 let D, map, heat, projLayer, linkLayer, zoneLayer, selPlace = null, bases, placesById = {}, pinned = [], curArea;
@@ -143,7 +143,7 @@ function setArea(a) {
   fill($("fStatus"), units.map((u) => u.status)); fill($("fLoc"), pjs.map((p) => p.profile.type));
   $("fLevel").length = 1;
   Object.entries(areaLevels()).forEach(([k, l]) => $("fLevel").add(new Option(`${k.length < 3 ? k + " · " : ""}${l.label}`, k)));
-  const pr = $("fPrice"); pr.min = 0; pr.max = Math.ceil(Math.max(0, ...units.map((u) => u.price || 0))); pr.step = 500000; pr.value = pr.max;
+  const pr = $("fPrice"); pr.min = 0; pr.max = Math.ceil(Math.max(0, ...units.map((u) => u.price || 0)) / 500000) * 500000; pr.step = 500000; pr.value = pr.max;
   $("fLiv").value = 0;
   buildPois(); render(); fit();
 }
@@ -167,7 +167,7 @@ function buildPois() {
   Object.entries(CATS).forEach(([k, c]) => {
     const items = keys.filter((key) => placeMeta(key, placesById).cat === k).map((key) => ({
       key, name: placeMeta(key, placesById).name,
-      dists: pjs.filter((p) => p.dist[key] != null).map((p) => ({ n: p.name, d: p.dist[key] })).sort((x, y) => x.d - y.d),
+      dists: pjs.filter((p) => p.dist[key] != null).map((p) => ({ n: p.name, d: p.dist[key], m: p.mins?.[key] })).sort((x, y) => x.d - y.d),
     })).sort((x, y) => x.dists[0].d - y.dists[0].d);
     if (!items.length) return;
     const group = document.createElement("details"); group.className = "catg";
@@ -187,7 +187,7 @@ function pickPlace(it) {
   selPlace = selPlace === it.key ? null : it.key;
   document.querySelectorAll(".place").forEach((b) => b.classList.toggle("on", b.dataset.key === selPlace));
   $("placeInfo").innerHTML = selPlace ? `<b>Distance to ${it.name}</b>Markers now show km to this place, with projects within 2 km in green.
-    <div style="margin-top:4px">${it.dists.slice(0, 5).map((x) => `${x.n}: ${x.d} km`).join("<br>")}</div><button type="button" id="clearPlace">Clear</button>` : "";
+    <div style="margin-top:4px">${it.dists.slice(0, 5).map((x) => `${x.n}: ${x.d} km${x.m != null ? `, about ${x.m} min` : ""}`).join("<br>")}</div><button type="button" id="clearPlace">Clear</button>` : "";
   if (selPlace) $("clearPlace").onclick = () => pickPlace(it);
   render();
 }
@@ -332,11 +332,13 @@ function tip(p) {
   const groups = {}, other = [];
   Object.entries(p.dist).forEach(([k, d]) => {
     const m = placeMeta(k, placesById);
-    (m.cat && CATS[m.cat] ? (groups[m.cat] ||= []) : other).push({ n: m.name, d });
+    (m.cat && CATS[m.cat] ? (groups[m.cat] ||= []) : other).push({ n: m.name, d, m: p.mins?.[k], url: routeLink(p, k, placesById) });
   });
-  const section = (c, items, color) => `<tr><th colspan="3" style="padding-top:8px;color:${color}">${c}
+  const hasMins = Object.keys(p.mins || {}).length > 0;
+  const section = (c, items, color) => `<tr><th colspan="4" style="padding-top:8px;color:${color}">${c}
       <span class="muted" style="font-weight:400">· nearest ${items[0].d} km</span></th></tr>` +
-    items.map((x) => `<tr><td>${x.n}</td><td>${x.d} km</td><td><div class="bar"><span style="width:${Math.max(4, 100 - x.d * 12)}%;background:${color}"></span></div></td></tr>`).join("");
+    items.map((x) => `<tr><td>${x.n}</td><td>${x.d} km${x.m != null ? ` · ${x.m} min` : ""}</td><td><div class="bar"><span style="width:${Math.max(4, 100 - x.d * 12)}%;background:${color}"></span></div></td>
+      <td>${x.url ? `<a href="${x.url}" target="_blank" rel="noopener">Google Maps</a>` : ""}</td></tr>`).join("");
   let nearby = Object.entries(CATS).filter(([k]) => groups[k])
     .map(([k, c]) => section(`${c.icon} ${c.label}`, groups[k].sort((a, b) => a.d - b.d), c.color)).join("");
   if (other.length) nearby += section("📍 Other", other.sort((a, b) => a.d - b.d), "#888");
@@ -350,7 +352,7 @@ function tip(p) {
      <button onclick="tab(this,'b${uid}')">📍 Nearby</button><button onclick="tab(this,'c${uid}')">🧭 Locality</button></div>
    <div class="pane on a${uid}"><table><tr><th>Type</th><th>BHK</th><th>Area</th><th>Price</th><th>₹/sqft</th>
      <th>Floor</th><th>Facing</th><th>Status</th><th>Furnishing</th></tr>${units}</table></div>
-   <div class="pane b${uid}"><table>${nearby || '<tr><td class="muted">No distance data</td></tr>'}</table></div>
+   <div class="pane b${uid}">${hasMins ? '<div class="muted" style="margin-bottom:4px">Road distance and estimated driving time without traffic, worked out from OpenStreetMap roads. Open Google Maps to see the route and current traffic.</div>' : ""}<table>${nearby || '<tr><td class="muted">No distance data</td></tr>'}</table></div>
    <div class="pane c${uid}">
      <div style="display:flex;gap:16px;align-items:center"><div class="score" style="color:${scoreColor(pr.livability)}">${pr.livability ?? "-"}</div>
      <div><b>${pr.type}</b><br>${pr.zone}<br><span class="muted">${pr.neighbours} other projects within 1 km · amenities ${p.amen ?? "-"}</span></div></div>

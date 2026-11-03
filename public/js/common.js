@@ -48,6 +48,17 @@ const AREA_CLUSTERS = {
     },
     assign: (p) => (p.villa ? "3" : p.lat >= 17.4 ? "1" : p.lng >= 78.335 ? "2" : "4"),
   },
+  kondapur: {
+    levels: {
+      KC1: { label: "Sarath City Capital Mall / Kothaguda", color: "#2a78d6", desc: "Homes around Sarath City Capital Mall and the Kothaguda junction.", why: "The mall and junction may add demand, but this cluster has only a few located projects so far." },
+      KC2: { label: "Botanical Garden Road", color: "#eb6834", desc: "Homes along Botanical Garden Road, from the Botanical Garden west towards Masjid Banda.", why: "Older mid-rise buildings sit beside new towers such as W by DSR, which may be why prices vary." },
+      KC3: { label: "Whitefields", color: "#1baf7a", desc: "Homes around Whitefields Road, on the HITEC City side of Kondapur.", why: "Being close to HITEC City, and newer high-rises such as Trendset Jayabheri Elevate, may be pushing prices up." },
+      KC4: { label: "RTA Office / Raghavendra Colony", color: "#eda100", desc: "Homes around the Kondapur RTA Office and Raghavendra Colony.", why: "Mostly smaller mid-rise buildings, which may be keeping prices down." },
+      KC5: { label: "Masjid Banda / Raja Rajeshwari Nagar", color: "#e87ba4", desc: "Homes in Masjid Banda and Raja Rajeshwari Nagar, plus the projects farther north-west.", why: "Large newer towers and older mid-rise buildings sit together here, which may be why prices vary." },
+      KC6: { label: "Kondapur Main Road / Bus Depot", color: "#6250d6", desc: "Homes along Kondapur Main Road towards the bus depot.", why: "Main-road access may support prices, and most buildings here are smaller mid-rise blocks." },
+    },
+    assign: (p) => nearestKondapur(p),
+  },
   manchirevula: {
     levels: {
       MC1: { label: "ORR Exit 18A", color: "#2a78d6",
@@ -71,11 +82,26 @@ const AREA_CLUSTERS = {
     },
   },
 };
+// Kondapur projects join whichever named locality they are closest to. Points are from OpenStreetMap and project pages.
+const KONDAPUR_POINTS = {
+  KC1: [[17.457714, 78.363873], [17.4587, 78.36388], [17.458922, 78.36598]],
+  KC2: [[17.455501, 78.363995], [17.455698, 78.362218], [17.4578, 78.359392], [17.462808, 78.349206], [17.463791, 78.348622], [17.4621, 78.342]],
+  KC3: [[17.45433, 78.36589], [17.45414, 78.36823], [17.452759, 78.366929], [17.455576, 78.36812], [17.45717, 78.37063]],
+  KC4: [[17.472253, 78.365155], [17.47198, 78.36227], [17.4687, 78.36457], [17.4722, 78.356]],
+  KC5: [[17.467037, 78.341516], [17.470652, 78.352609]],
+  KC6: [[17.465377, 78.364018], [17.45853, 78.368719], [17.457735, 78.372135], [17.45947, 78.36948]],
+};
+const nearestKondapur = (p) => {
+  const away = (pts) => Math.min(...pts.map(([a, b]) => kmBetween(p.lat, p.lng, a, b)));
+  return Object.entries(KONDAPUR_POINTS).reduce((best, e) => (away(e[1]) < away(best[1]) ? e : best))[0];
+};
+
 export const levelsFor = (areaId) => AREA_CLUSTERS[areaId]?.levels ?? LEVELS;
 
 // Which clusters to point people to, cheapest or priciest first
 export const CLUSTER_GUIDE = {
   kokapet: { budget: ["2", "4"], premium: ["3", "1"], extra: "Prices overlap, so each cluster also has some cheaper and some pricier homes." },
+  kondapur: { budget: ["KC4", "KC1"], premium: ["KC3", "KC2"], extra: "Prices overlap, so each cluster also has some cheaper and some pricier homes. KC1 has only a few located projects. Some projects aren't in a cluster yet because their exact location isn't confirmed." },
   manchirevula: { budget: ["MC4", "MC1"], premium: ["MC3", "MC2"], extra: "Prices overlap, so each cluster also has some cheaper and some pricier homes. MC1 homes can cost a lot in total because many are large, but they are lower priced for their size." },
 };
 
@@ -93,7 +119,8 @@ export function priceStory(units, others) {
     trend: share >= 0.6 ? "Higher" : share <= 0.4 ? "Lower" : "Varying" };
 }
 
-// Columns that describe the property itself (everything else numeric = a distance in km)
+// Columns that describe the property itself (everything else numeric = a distance in km,
+// or estimated driving minutes when the column name ends in " mins")
 const CORE = new Set(["s.0", "s.no", "name of the project", "type", "bhk", "area_sqft", "no.of bathrooms",
   "floors", "floor no", "facing", "furnishing status", "status", "asking price", "price_numeric",
   "price per sqft", "lat-lon", "age_years", "total amenities", "area", "locality"]);
@@ -162,11 +189,13 @@ export async function rowToProperty(raw, area) {
 
   const price = num(r["price_numeric"]) ?? parsePrice(r["asking price"]);
   const areaSqft = num(r["area_sqft"]);
-  const dist = {};
+  const dist = {}, mins = {};
   for (const [k, v] of Object.entries(r)) {
     if (CORE.has(k)) continue;
     const n = num(v);
-    if (n !== null) dist[keyOf(k)] = n;
+    if (n === null) continue;
+    if (k.endsWith(" mins")) mins[keyOf(k.slice(0, -5))] = n;
+    else dist[keyOf(k)] = n;
   }
   const p = {
     area, areaId: slug(area), project, type: clean(r["type"]), bhk: num(r["bhk"]), areaSqft,
@@ -174,7 +203,7 @@ export async function rowToProperty(raw, area) {
     facing: clean(r["facing"]), furnishing: clean(r["furnishing status"]), status: clean(r["status"]),
     askingPrice: String(r["asking price"] ?? "").trim(), price,
     psf: num(r["price per sqft"]) ?? (price && areaSqft ? Math.round(price / areaSqft) : null),
-    lat, lng, age: num(r["age_years"]), amenities: num(r["total amenities"]), dist,
+    lat, lng, age: num(r["age_years"]), amenities: num(r["total amenities"]), dist, mins,
   };
   // Fingerprint: the same flat uploaded twice gets the same id → merged, not duplicated
   // Every descriptive field except coordinates (some sheets drag-fill-increment the longitude per row)
@@ -190,6 +219,13 @@ export function placeMeta(key, placesById) {
   if (pl) return { name: pl.name, cat: pl.category };
   if (key === "dist_financial_district_km") return { name: "Financial District", cat: "it" };
   return { name: titleCase(key), cat: guessCategory(key) };
+}
+
+// Opens the driving route on Google Maps. Needs no key and stores nothing from Google.
+export function routeLink(pj, key, placesById) {
+  const pl = placesById[key];
+  if (pl?.lat == null || pl?.lng == null) return null;
+  return `https://www.google.com/maps/dir/?api=1&origin=${pj.lat.toFixed(6)},${pj.lng.toFixed(6)}&destination=${pl.lat},${pl.lng}&travelmode=driving`;
 }
 
 export const inr = (v) => (!v ? "N/A" : v >= 1e7 ? `₹${(v / 1e7).toFixed(2)} Cr` : `₹${(v / 1e5).toFixed(1)} L`);
@@ -239,10 +275,11 @@ function clipCloser(poly, a, b, j) {
 // Listings that would mislead the zones. They stay on the map but don't shape or label any zone.
 const NOT_IN_ZONES = {
   kokapet: [{ project: "sriram river view", why: "Its one listing shows ₹2,499/sqft, far below this project's other asking prices, so it looks like a data error." }],
+  kondapur: [{ at: [17.45879, 78.37305], why: "This project's exact location isn't confirmed, so it sits at a general Kondapur point and isn't in a cluster." }],
   manchirevula: [{ at: [17.3736, 78.3489], counted: true, why: "These listings have no project name and only a general location for the area." }],
 };
 const leftOutRule = (pj) => (NOT_IN_ZONES[pj.areaId] || []).find((r) => (r.project ? r.project === pj.name.toLowerCase()
-  : r.at[0] === +pj.lat.toFixed(4) && r.at[1] === +pj.lng.toFixed(4)));
+  : Math.abs(r.at[0] - pj.lat) < 0.00011 && Math.abs(r.at[1] - pj.lng) < 0.00011));
 
 // Divide one area into zones. Each project location takes the land nearest to it, and touching land in
 // the same group joins into one zone, so zones never overlap. The group is the area's named cluster, or
@@ -348,6 +385,11 @@ export function buildProjects(properties, placesById) {
     for (const k of keys) {
       const vals = pj.units.map((u) => u.dist?.[k]).filter((v) => v != null);
       if (vals.length) pj.dist[k] = +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(2);
+    }
+    pj.mins = {};
+    for (const k of new Set(pj.units.flatMap((u) => Object.keys(u.mins || {})))) {
+      const vals = pj.units.map((u) => u.mins?.[k]).filter((v) => v != null);
+      if (vals.length) pj.mins[k] = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
     }
     const psfs = pj.units.map((u) => u.psf).filter(Boolean);
     pj.avgPsf = psfs.length ? Math.round(psfs.reduce((a, b) => a + b, 0) / psfs.length) : null;
