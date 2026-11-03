@@ -47,6 +47,7 @@ Categories: hospital, school, college, it, shopping, park, gym, worship, transpo
 <section class="card" id="areasCard">
 <h2>Areas in the database</h2>
 <table id="areas"><thead><tr><th>Area</th><th>Listings</th><th>Projects</th><th>Last upload</th><th></th></tr></thead><tbody></tbody></table>
+<div id="areasLog" class="muted" style="margin-top:8px"></div>
 </section>
 </main>
 
@@ -68,9 +69,20 @@ async function refresh() {
     <td class="muted">${meta[id]?.updatedAt ? new Date(meta[id].updatedAt).toLocaleString() : "-"}</td>
     <td><button class="danger" data-del="${id}" data-name="${a.area}">Delete area</button></td></tr>`).join("")
     || `<tr><td colspan="5" class="muted">No data yet. Upload your first spreadsheet above.</td></tr>`;
+  // Two clicks on the page itself, because browsers can silently block confirm() pop-ups
   document.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
-    if (!confirm(`Delete ALL listings for "${b.dataset.name}"? This cannot be undone.`)) return;
-    b.disabled = true; const n = await deleteArea(b.dataset.del); alert(`Deleted ${n} listings.`); refresh();
+    const msg = $("areasLog");
+    if (!b.dataset.armed) {
+      b.dataset.armed = "1"; b.textContent = `Click again to delete ${b.dataset.name}`;
+      msg.textContent = `This deletes ALL listings for ${b.dataset.name} and cannot be undone.`;
+      return;
+    }
+    b.disabled = true; b.textContent = "Deleting…"; msg.textContent = "";
+    try {
+      const n = await deleteArea(b.dataset.del);
+      msg.textContent = `✓ Deleted ${n} listings from ${b.dataset.name}.`;
+    } catch (e) { msg.textContent = `✗ Could not delete ${b.dataset.name}: ${e.message}`; }
+    refresh();
   }));
 }
 
